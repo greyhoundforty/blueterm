@@ -1,13 +1,14 @@
 # BlueTerm
 
 <p align="center">
-  <b>Terminal UI for managing IBM Cloud VPC instances</b>
+  <b>Terminal UI for managing IBM Cloud resources</b>
 </p>
 
-BlueTerm is a modern, keyboard-driven TUI (Terminal User Interface) application for managing IBM Cloud VPC virtual server instances. Inspired by [TAWS](https://github.com/huseyinbabal/taws) for AWS, BlueTerm brings the same powerful terminal-based workflow to IBM Cloud.
+BlueTerm is a modern, keyboard-driven TUI (Terminal User Interface) application for managing IBM Cloud resources including VPC instances, Kubernetes clusters, OpenShift clusters, and Code Engine applications. Inspired by [TAWS](https://github.com/huseyinbabal/taws) for AWS, BlueTerm brings the same powerful terminal-based workflow to IBM Cloud.
 
 ## Features
 
+- 🎯 **Multi-resource support** - VPC, IKS, ROKS, and Code Engine in one interface
 - 🚀 **Fast navigation** - Vim-style keybindings (j/k, h/l) for power users
 - 🔢 **Quick region access** - Press 0-9 to jump instantly to any region
 - 🌎 **Multi-region support** - Switch between IBM Cloud regions instantly
@@ -106,19 +107,25 @@ blueterm
 
 ### Keyboard Shortcuts
 
+#### Resource Types
+- `v` - Switch to VPC (Virtual Private Cloud instances)
+- `i` - Switch to IKS (IBM Kubernetes Service clusters)
+- `r` - Switch to ROKS (Red Hat OpenShift clusters)
+- `c` - Switch to Code Engine (serverless apps, jobs, functions)
+
 #### Navigation
-- `j` or `↓` - Move down in instance list
-- `k` or `↑` - Move up in instance list
+- `j` or `↓` - Move down in instance/resource list
+- `k` or `↑` - Move up in instance/resource list
 - `h` or `←` - Previous region (cycle)
 - `l` or `→` - Next region (cycle)
 - `0-9` - Jump to region by number (quick access)
 
-#### Instance Actions
-- `d` - View instance details (pop-over modal)
+#### Resource Actions
+- `d` - View resource details (pop-over modal)
 - `s` - Start selected instance
 - `S` (Shift+S) - Stop selected instance
-- `r` - Reboot selected instance
-- `R` (Shift+R) - Refresh instance list
+- `b` - Reboot selected instance
+- `R` (Shift+R) - Refresh current view
 
 #### Detail Window
 - `Esc`, `x`, or `q` - Close detail window
@@ -126,7 +133,7 @@ blueterm
 #### Search
 - `/` - Open search/filter
 - `Esc` - Clear search and close
-- Type to filter instances by name or status
+- Type to filter resources by name or status
 
 #### Appearance
 - `t` - Cycle through color themes

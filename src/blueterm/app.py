@@ -4,15 +4,22 @@ from typing import Optional, List
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer
 from textual.worker import Worker, WorkerState
 
 from .config import Config, UserPreferences
 from .api.client import IBMCloudClient
-from .api.models import Region, Instance
+from .api.iks_client import IKSClient
+from .api.roks_client import ROKSClient
+from .api.code_engine_client import CodeEngineClient
+from .api.resource_manager_client import ResourceManagerClient
+from .api.models import Region, Instance, ResourceGroup
 from .api.exceptions import AuthenticationError, ConfigurationError
 from .widgets.region_selector import RegionSelector
+from .widgets.resource_type_selector import ResourceTypeSelector, ResourceType
+from .widgets.resource_group_selector import ResourceGroupSelector
+from .widgets.info_bar import InfoBar
 from .widgets.instance_table import InstanceTable
 from .widgets.status_bar import StatusBar
 from .widgets.search_input import SearchInput
@@ -20,23 +27,37 @@ from .widgets.detail_panel import DetailPanel
 from .screens.detail_screen import DetailScreen
 from .screens.confirm_screen import ConfirmScreen
 from .screens.error_screen import ErrorScreen
+from .screens.resource_group_selection_screen import ResourceGroupSelectionScreen
 
 
 class BluetermApp(App):
     """
-    Blueterm - IBM Cloud VPC Instance Manager TUI
+    Blueterm - IBM Cloud Resource Manager TUI
 
     Keyboard Bindings:
-        j/k or ↑/↓: Navigate instances
-        h/l or ←/→: Switch regions
-        /: Search/filter instances
-        Enter: View instance details
-        s: Start instance
-        S: Stop instance
-        r: Reboot instance
-        R: Refresh current view
-        q: Quit application
-        ?: Show help
+        Resource Types:
+            v: Switch to VPC
+            i: Switch to IKS
+            r: Switch to ROKS
+            c: Switch to Code Engine
+
+        Instance Navigation:
+            j/k or ↑/↓: Navigate instances
+            h/l or ←/→: Switch regions
+
+        Search/Filter:
+            /: Search/filter instances
+
+        Actions:
+            d: View instance details
+            s: Start instance
+            S: Stop instance
+            b: Reboot instance
+            R: Refresh current view
+
+        General:
+            q: Quit application
+            ?: Show help
     """
 
     CSS_PATH = "styles/app.tcss"
@@ -46,7 +67,13 @@ class BluetermApp(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("question_mark", "help", "Help"),
         Binding("slash", "search", "Search"),
-        Binding("r", "reboot_instance", "Reboot"),
+        # Resource type switching
+        Binding("v", "switch_resource_type('v')", "VPC", show=True),
+        Binding("i", "switch_resource_type('i')", "IKS", show=True),
+        Binding("r", "switch_resource_type('r')", "ROKS", show=True),
+        Binding("c", "switch_resource_type('c')", "Code Engine", show=True),
+        # Instance actions
+        Binding("b", "reboot_instance", "Reboot"),
         Binding("s", "start_instance", "Start"),
         Binding("S", "stop_instance", "Stop"),
         Binding("R", "refresh", "Refresh"),
@@ -88,7 +115,18 @@ class BluetermApp(App):
         try:
             self.config = Config.from_env()
             self.config.validate()
-            self.client = IBMCloudClient(self.config.api_key)
+
+            # Initialize all API clients
+            self.vpc_client = IBMCloudClient(self.config.api_key)
+            self.iks_client = IKSClient(self.config.api_key)
+            self.roks_client = ROKSClient(self.config.api_key)
+            self.code_engine_client = CodeEngineClient(self.config.api_key)
+            self.resource_manager_client = ResourceManagerClient(self.config.api_key)
+
+            # Set current client to VPC by default
+            self.client = self.vpc_client
+            self.current_resource_type = ResourceType.VPC
+
         except (ConfigurationError, AuthenticationError) as e:
             self.exit(1, str(e))
             return
@@ -105,20 +143,28 @@ class BluetermApp(App):
 
         self.regions: List[Region] = []
         self.current_region: Optional[Region] = None
+        self.resource_groups: List[ResourceGroup] = []
+        self.current_resource_group: Optional[ResourceGroup] = None
         self.instances: List[Instance] = []
         self.filtered_instances: List[Instance] = []
         self.search_query: str = ""
         self._refresh_timer = None  # Auto-refresh timer
 
     def compose(self) -> ComposeResult:
-        """Compose the main application layout"""
+        """Compose the main application layout with left sidebar"""
         yield Header()
-        yield Container(
-            RegionSelector(id="region_selector"),
-            InstanceTable(id="instance_table"),
-            SearchInput(id="search_input"),
-            id="main_container"
-        )
+        yield InfoBar(id="info_bar")
+        with Horizontal(id="app_layout"):
+            # Left sidebar for resource type selection
+            yield ResourceTypeSelector(id="resource_type_selector")
+
+            # Main content area (right side)
+            with Vertical(id="main_container"):
+                yield RegionSelector(id="region_selector")
+                yield ResourceGroupSelector(id="resource_group_selector")
+                yield InstanceTable(id="instance_table")
+                yield SearchInput(id="search_input")
+
         yield StatusBar(id="status_bar")
         yield Footer()
 
@@ -129,12 +175,51 @@ class BluetermApp(App):
         # Set theme from preferences
         self.theme = self.preferences.theme
 
+        # Start time update timer (update every second)
+        self.set_interval(1.0, self._update_time_display)
+
+        # Load resource groups first (needed for Code Engine)
+        self.load_resource_groups()
+
         # Load regions
         self.load_regions()
 
         # Start auto-refresh if enabled
         if self.preferences.auto_refresh_enabled:
             self._start_auto_refresh()
+
+    def _update_time_display(self) -> None:
+        """Update the time display in info bar"""
+        try:
+            info_bar = self.query_one("#info_bar", InfoBar)
+            info_bar.update_time()
+        except:
+            pass
+
+    @work(thread=True, exclusive=True)
+    async def load_resource_groups(self) -> None:
+        """Load available resource groups from API"""
+        try:
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_loading(True)
+
+            self.resource_groups = await self.resource_manager_client.list_resource_groups()
+
+            if self.resource_groups:
+                # Select first resource group by default
+                self.current_resource_group = self.resource_groups[0]
+
+                resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
+                resource_group_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+
+                # Set resource group on Code Engine client
+                self.code_engine_client.set_resource_group(self.current_resource_group.id)
+
+            status_bar.set_loading(False)
+
+        except Exception as e:
+            # Non-fatal error - resource groups are optional for VPC/IKS/ROKS
+            print(f"Warning: Failed to load resource groups: {e}")
 
     @work(thread=True, exclusive=True)
     async def load_regions(self) -> None:
@@ -158,22 +243,41 @@ class BluetermApp(App):
                 region_selector = self.query_one("#region_selector", RegionSelector)
                 region_selector.set_regions(self.regions, default)
 
+                # Update info bar with region
+                try:
+                    info_bar = self.query_one("#info_bar", InfoBar)
+                    info_bar.set_region(default)
+                except:
+                    pass
+
                 self.load_instances()
             else:
-                self.push_screen(ErrorScreen(
-                    "No regions available",
-                    recoverable=False,
-                    suggestion="Check your IBM Cloud account configuration"
-                ))
+                # Use call_from_thread to safely push screen from worker thread
+                # Create ErrorScreen in main thread via lambda
+                self.call_from_thread(
+                    lambda: self.push_screen(
+                        ErrorScreen(
+                            "No regions available",
+                            recoverable=False,
+                            suggestion="Check your IBM Cloud account configuration"
+                        )
+                    )
+                )
 
             status_bar.set_loading(False)
 
         except Exception as e:
-            self.push_screen(ErrorScreen(
-                f"Failed to load regions: {e}",
-                recoverable=False,
-                suggestion="Check your IBMCLOUD_API_KEY and network connectivity"
-            ))
+            # Use call_from_thread to safely push screen from worker thread
+            # Create ErrorScreen in main thread via lambda
+            self.call_from_thread(
+                lambda: self.push_screen(
+                    ErrorScreen(
+                        f"Failed to load regions: {e}",
+                        recoverable=False,
+                        suggestion="Check your IBMCLOUD_API_KEY and network connectivity"
+                    )
+                )
+            )
 
     @work(thread=True, exclusive=True)
     async def load_instances(self) -> None:
@@ -210,11 +314,17 @@ class BluetermApp(App):
 
         except Exception as e:
             status_bar.set_loading(False)
-            self.push_screen(ErrorScreen(
-                f"Failed to load instances: {e}",
-                recoverable=True,
-                suggestion="Press R to retry"
-            ))
+            # Use call_from_thread to safely push screen from worker thread
+            # Create ErrorScreen in main thread via lambda
+            self.call_from_thread(
+                lambda: self.push_screen(
+                    ErrorScreen(
+                        f"Failed to load instances: {e}",
+                        recoverable=True,
+                        suggestion="Press R to retry"
+                    )
+                )
+            )
 
     def apply_search_filter(self) -> None:
         """Filter instances based on search query"""
@@ -249,6 +359,41 @@ class BluetermApp(App):
         instance_table = self.query_one("#instance_table", InstanceTable)
         instance_table.update_instances(self.filtered_instances)
 
+    def on_resource_type_selector_resource_type_changed(self, message) -> None:
+        """Handle resource type change event"""
+        self.current_resource_type = message.resource_type
+
+        # Switch to appropriate client
+        client_map = {
+            ResourceType.VPC: self.vpc_client,
+            ResourceType.IKS: self.iks_client,
+            ResourceType.ROKS: self.roks_client,
+            ResourceType.CODE_ENGINE: self.code_engine_client,
+        }
+        self.client = client_map[message.resource_type]
+
+        # Show notification
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message(f"Switched to {message.resource_type.value}", "info")
+
+        # Reload regions for new resource type
+        self.load_regions()
+
+    def on_resource_group_selector_resource_group_changed(self, message) -> None:
+        """Handle resource group change event"""
+        self.current_resource_group = message.resource_group
+
+        # Update Code Engine client with new resource group
+        self.code_engine_client.set_resource_group(message.resource_group.id)
+
+        # Show notification
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message(f"Resource Group: {message.resource_group.name}", "info")
+
+        # Reload instances if viewing Code Engine
+        if self.current_resource_type == ResourceType.CODE_ENGINE:
+            self.load_instances()
+
     def action_region_next(self) -> None:
         """Select next region (l or → key)"""
         region_selector = self.query_one("#region_selector", RegionSelector)
@@ -263,6 +408,21 @@ class BluetermApp(App):
         """Select region by number key (0-9)"""
         region_selector = self.query_one("#region_selector", RegionSelector)
         region_selector.select_by_number(number)
+
+    def action_switch_resource_type(self, key: str) -> None:
+        """Switch resource type by keyboard shortcut (v/i/r/c)"""
+        resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
+        resource_type_selector.select_by_key(key)
+
+    def action_resource_group_next(self) -> None:
+        """Select next resource group (g key)"""
+        resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
+        resource_group_selector.select_next()
+
+    def action_resource_group_previous(self) -> None:
+        """Select previous resource group (G key)"""
+        resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
+        resource_group_selector.select_previous()
 
     def action_refresh(self) -> None:
         """Refresh current view"""
@@ -408,29 +568,41 @@ class BluetermApp(App):
             self.set_timer(2.0, self.load_instances)
 
         except Exception as e:
-            self.push_screen(ErrorScreen(
-                f"Failed to {action} instance: {e}",
-                recoverable=True,
-                suggestion="Check instance state and try again"
-            ))
+            # Use call_from_thread to safely push screen from worker thread
+            # Create ErrorScreen in main thread via lambda
+            self.call_from_thread(
+                lambda: self.push_screen(
+                    ErrorScreen(
+                        f"Failed to {action} instance: {e}",
+                        recoverable=True,
+                        suggestion="Check instance state and try again"
+                    )
+                )
+            )
 
     def action_help(self) -> None:
         """Show help screen"""
         help_text = """
-Blueterm - IBM Cloud VPC Instance Manager
+Blueterm - IBM Cloud Resource Manager
 
 Keyboard Shortcuts:
+  Resource Types:
+    v              Switch to VPC
+    i              Switch to IKS (IBM Kubernetes Service)
+    r              Switch to ROKS (Red Hat OpenShift)
+    c              Switch to Code Engine
+
   Navigation:
-    j/k or ↑/↓     Navigate instances
+    j/k or ↑/↓     Navigate instances/resources
     h/l or ←/→     Switch regions (cycle)
     0-9            Jump to region by number
 
   Actions:
-    d              View instance details (modal)
+    d              View instance/resource details (modal)
     s              Start selected instance
     S (Shift+S)    Stop selected instance
-    r              Reboot selected instance
-    R (Shift+R)    Refresh instance list
+    b              Reboot selected instance
+    R (Shift+R)    Refresh current view
 
   Detail Window:
     Esc, x, or q   Close detail window

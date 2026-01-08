@@ -1,13 +1,199 @@
-# BlueTerm - IBM Cloud VPC TUI Application
+# BlueTerm - IBM Cloud Multi-Resource TUI Application
 
 ## Project Overview
-BlueTerm is a Python-based Terminal User Interface (TUI) application for managing IBM Cloud VPC virtual server instances, inspired by TAWS (Terminal UI for AWS).
+BlueTerm is a Python-based Terminal User Interface (TUI) application for managing IBM Cloud resources including VPC instances, IKS clusters, ROKS clusters, and Code Engine applications, inspired by TAWS (Terminal UI for AWS).
 
 **Created**: 2026-01-07
-**Status**: Production Ready with TAWS-Style UI
-**Technology Stack**: Python 3.12, Textual, IBM VPC SDK
+**Status**: Production Ready with Multi-Resource Support
+**Technology Stack**: Python 3.12, Textual, IBM Cloud SDKs
 
 ## Implementation Summary
+
+### Session: Multi-Resource Support (2026-01-08 - Session 5)
+
+**Duration**: ~1 hour
+**Outcome**: Added support for IKS, ROKS, and Code Engine with left sidebar navigation
+
+#### Major Changes
+
+1. **Resource Type Selector Widget**
+   - ✅ Created ResourceTypeSelector widget with left sidebar layout
+   - ✅ Displays 4 resource types: VPC, IKS, ROKS, Code Engine
+   - ✅ Keyboard shortcuts for quick switching (v/i/r/c)
+   - ✅ Visual indicator shows currently selected resource type
+   - ✅ Arrow pointing to selected type
+
+2. **Stub API Clients**
+   - ✅ Created IKSClient for IBM Kubernetes Service
+   - ✅ Created ROKSClient for Red Hat OpenShift
+   - ✅ Created CodeEngineClient for Code Engine
+   - ✅ All clients return placeholder data for testing
+   - ✅ Ready for real API integration in future
+
+3. **Application Layout Redesign**
+   - ✅ Changed from single main container to horizontal split layout
+   - ✅ Left sidebar (20 width) for resource type selection
+   - ✅ Right side (1fr) for main content (regions, instances, search)
+   - ✅ Updated TCSS styling for new layout
+
+4. **Keyboard Bindings Updated**
+   - ✅ v: Switch to VPC
+   - ✅ i: Switch to IKS
+   - ✅ r: Switch to ROKS (changed reboot to 'b' to avoid conflict)
+   - ✅ c: Switch to Code Engine
+   - ✅ b: Reboot instance (moved from 'r')
+
+5. **Client Switching Logic**
+   - ✅ App maintains 4 separate clients (vpc, iks, roks, code_engine)
+   - ✅ Switches active client when resource type changes
+   - ✅ Reloads regions and data for new resource type
+   - ✅ Status bar shows notification on resource type switch
+
+#### Files Created
+
+**New Widgets:**
+- `src/blueterm/widgets/resource_type_selector.py` - Left sidebar widget (157 lines)
+
+**New API Clients:**
+- `src/blueterm/api/iks_client.py` - IKS stub client (99 lines)
+- `src/blueterm/api/roks_client.py` - ROKS stub client (110 lines)
+- `src/blueterm/api/code_engine_client.py` - Code Engine stub client (170 lines)
+
+#### Files Modified
+
+**Core Application:**
+- `src/blueterm/app.py` - Added multi-client support, resource type switching, updated bindings
+- `src/blueterm/widgets/__init__.py` - Exported ResourceTypeSelector and ResourceType
+- `src/blueterm/api/__init__.py` - Exported all new API clients
+- `src/blueterm/styles/app.tcss` - Added sidebar styling and horizontal layout
+
+**Documentation:**
+- `README.md` - Updated features, keyboard shortcuts, descriptions
+- `CLAUDE.md` - Added Session 5 summary (this section)
+
+#### Technical Implementation
+
+**ResourceTypeSelector Layout:**
+```
+┌─────────────────┐
+│    RESOURCES    │
+│─────────────────│
+│                 │
+│ [v] VPC ◀       │
+│                 │
+│ [i] IKS         │
+│                 │
+│ [r] ROKS        │
+│                 │
+│ [c] Code Engine │
+│                 │
+└─────────────────┘
+```
+
+**Client Architecture:**
+```python
+# Initialize all clients in __init__
+self.vpc_client = IBMCloudClient(api_key)
+self.iks_client = IKSClient(api_key)
+self.roks_client = ROKSClient(api_key)
+self.code_engine_client = CodeEngineClient(api_key)
+
+# Switch based on resource type
+client_map = {
+    ResourceType.VPC: self.vpc_client,
+    ResourceType.IKS: self.iks_client,
+    ResourceType.ROKS: self.roks_client,
+    ResourceType.CODE_ENGINE: self.code_engine_client,
+}
+self.client = client_map[resource_type]
+```
+
+**New Layout Structure:**
+```
+┌─────────────────────────────────────────────────────┐
+│ Header                                              │
+├─────────┬───────────────────────────────────────────┤
+│         │ Profile: ibmcloud  Region: us-south       │
+│ RESOUR  │ <0> us-east  <1> us-west  <2> eu-gb       │
+│ CES     ├───────────────────────────────────────────┤
+│         │                                           │
+│ [v] VPC │ Instance Table                            │
+│    ◀    │                                           │
+│         │                                           │
+│ [i] IKS ├───────────────────────────────────────────┤
+│         │ Search: ____________                      │
+│ [r] ROK └───────────────────────────────────────────┘
+│ S       │
+│         │
+│ [c] Cod │
+│ e Engin │
+│ e       │
+├─────────┴───────────────────────────────────────────┤
+│ Status Bar                                          │
+├─────────────────────────────────────────────────────┤
+│ Footer                                              │
+└─────────────────────────────────────────────────────┘
+```
+
+#### Key Design Decisions
+
+1. **Left Sidebar Placement**: Chose left sidebar over top navigation to:
+   - Avoid cluttering the already busy top info bar
+   - Provide clear visual separation between resource types and regions
+   - Follow common TUI patterns (left nav is standard)
+
+2. **Keyboard Shortcuts**: Used v/i/r/c for consistency with:
+   - First letter of each resource type
+   - Easy to remember
+   - Changed reboot to 'b' to avoid 'r' conflict with ROKS
+
+3. **Stub Clients**: Created stub clients with placeholder data to:
+   - Test UI layout and switching logic
+   - Enable incremental development
+   - Provide clear TODOs for real API integration
+
+4. **Client Switching**: Reload regions when switching resource types because:
+   - Different services may have different regional availability
+   - Clean slate approach ensures correct data display
+   - User gets immediate feedback
+
+#### Next Steps
+
+**Immediate:**
+1. Test the new multi-resource UI layout
+2. Verify keyboard shortcuts work correctly
+3. Test resource type switching with stub data
+
+**Short-term:**
+4. Implement real IKS API integration (IBM Cloud Kubernetes Service SDK)
+5. Implement real ROKS API integration (same SDK as IKS)
+6. Implement real Code Engine API integration (IBM Cloud Code Engine SDK)
+7. Add resource-specific table columns (clusters have different fields than VMs)
+8. Add resource-specific actions (clusters need different operations than VMs)
+
+**Future:**
+9. Support multiple resource views per type (e.g., Code Engine: apps, jobs, functions)
+10. Add cluster creation wizards
+11. Add Code Engine deployment features
+12. Support cross-resource operations (e.g., deploy app to cluster)
+
+#### Testing Notes
+
+- ✅ ResourceTypeSelector widget created and styled
+- ✅ All 4 stub clients created with placeholder data
+- ✅ App layout updated to horizontal split
+- ✅ Keyboard bindings updated (v/i/r/c)
+- ⏸️ Runtime testing pending (requires running application)
+- ⏸️ Real API integration pending (future work)
+
+#### User Experience Improvements
+
+- **Clear resource type indicator**: Left sidebar makes it obvious which resource type is active
+- **Quick switching**: Single keypress to switch between VPC, IKS, ROKS, Code Engine
+- **Consistent navigation**: Same keyboard shortcuts work across all resource types
+- **Familiar layout**: TAWS-style design maintained with added resource type dimension
+
+---
 
 ### Session: Detail Modal & Stop Command Fix (2026-01-08 - Session 4)
 

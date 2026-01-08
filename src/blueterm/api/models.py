@@ -61,6 +61,21 @@ class Region:
 
 
 @dataclass
+class ResourceGroup:
+    """IBM Cloud Resource Group"""
+    id: str
+    name: str
+    state: str  # active, inactive, etc.
+    crn: str
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"ResourceGroup(name='{self.name}', id='{self.id[:8]}...')"
+
+
+@dataclass
 class Instance:
     """IBM Cloud VPC Instance"""
     id: str

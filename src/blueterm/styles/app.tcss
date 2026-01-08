@@ -1,9 +1,42 @@
 /* Blueterm Textual CSS Styling */
 
+/* App layout - horizontal split */
+#app_layout {
+    layout: horizontal;
+    height: 100%;
+}
+
+/* Resource type selector - left sidebar */
+#resource_type_selector {
+    width: 20;
+    height: 100%;
+    background: $surface;
+    border-right: solid $primary;
+}
+
+#resource_type_panel {
+    height: 100%;
+    padding: 1;
+}
+
+#resource_type_title {
+    height: auto;
+    text-align: center;
+    margin-bottom: 2;
+    border-bottom: solid $primary;
+    padding-bottom: 1;
+}
+
+#resource_type_list {
+    height: auto;
+    padding: 0;
+}
+
 /* Main container layout */
 #main_container {
     layout: vertical;
     height: 100%;
+    width: 1fr;
 }
 
 /* Region selector at top - TAWS style */
@@ -51,6 +84,33 @@
     background: $surface;
     color: $text;
     padding: 1 0 0 0;
+}
+
+/* Resource group selector */
+#resource_group_selector {
+    height: auto;
+    dock: top;
+    background: $surface;
+    border: solid $primary;
+    padding: 0;
+}
+
+#resource_group_bar {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+    padding: 0 2;
+}
+
+#rg_label {
+    color: $text-muted;
+    width: auto;
+}
+
+#current_resource_group {
+    color: $success;
+    text-style: bold;
+    width: auto;
 }
 
 /* Instance table */
