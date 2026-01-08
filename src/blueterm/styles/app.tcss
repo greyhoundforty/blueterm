@@ -1,0 +1,275 @@
+/* Blueterm Textual CSS Styling */
+
+/* Main container layout */
+#main_container {
+    layout: vertical;
+    height: 100%;
+}
+
+/* Region selector at top - TAWS style */
+#region_selector {
+    height: auto;
+    dock: top;
+    background: $surface;
+    border: solid $primary;
+    padding: 0;
+}
+
+#region_panel {
+    height: auto;
+    background: $surface;
+    padding: 1;
+}
+
+#region_info_bar {
+    height: 1;
+    background: $surface;
+    color: $text-muted;
+}
+
+#profile_label, #region_label, #resource_label, #instances_label {
+    color: $text-muted;
+    width: auto;
+}
+
+#profile_value, #current_region, #resource_value, #instances_count {
+    color: $text;
+    text-style: bold;
+    width: auto;
+}
+
+#current_region {
+    color: $success;
+}
+
+#instances_count {
+    color: $accent;
+}
+
+#region_list {
+    height: auto;
+    background: $surface;
+    color: $text;
+    padding: 1 0 0 0;
+}
+
+/* Instance table */
+#instance_table {
+    height: 1fr;
+    border: solid $primary;
+    margin: 1 0;
+}
+
+#instance_table > .datatable--header {
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+}
+
+#instance_table > .datatable--cursor {
+    background: $accent;
+}
+
+/* Search input */
+#search_input {
+    height: 3;
+    dock: bottom;
+    border: solid $accent;
+    padding: 0 1;
+}
+
+#search_input.hidden {
+    display: none;
+}
+
+#search_container {
+    layout: horizontal;
+    height: 100%;
+    align-vertical: middle;
+}
+
+#search_label {
+    width: auto;
+    margin-right: 1;
+    color: $accent;
+}
+
+#search_field {
+    width: 1fr;
+}
+
+#search_field:focus {
+    border: solid $success;
+}
+
+/* Status bar */
+#status_bar {
+    height: 1;
+    dock: bottom;
+    background: $panel;
+    padding: 0 2;
+}
+
+#status_text {
+    width: 100%;
+    height: 100%;
+    content-align: left middle;
+}
+
+/* Modal screens */
+Screen {
+    align: center middle;
+}
+
+ModalScreen {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Error dialog */
+#error_dialog {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: heavy $error;
+    padding: 1 2;
+}
+
+#error_content {
+    layout: vertical;
+    height: auto;
+}
+
+#error_title {
+    text-style: bold;
+    color: $error;
+    margin-bottom: 1;
+}
+
+#error_message {
+    margin-bottom: 1;
+    color: $text;
+}
+
+#error_suggestion {
+    margin-bottom: 1;
+    color: $warning;
+}
+
+#error_buttons {
+    layout: horizontal;
+    height: auto;
+    align-horizontal: center;
+}
+
+/* Confirmation dialog */
+#confirm_dialog {
+    width: 50;
+    height: auto;
+    background: $surface;
+    border: heavy $warning;
+    padding: 1 2;
+}
+
+#confirm_content {
+    layout: vertical;
+    height: auto;
+}
+
+#confirm_title {
+    text-style: bold;
+    color: $warning;
+    margin-bottom: 1;
+}
+
+#confirm_message {
+    margin-bottom: 1;
+    color: $text;
+}
+
+#confirm_buttons {
+    layout: horizontal;
+    height: auto;
+    align-horizontal: center;
+    margin-top: 1;
+}
+
+#confirm_buttons Button {
+    margin: 0 1;
+}
+
+/* Detail dialog */
+#detail_dialog {
+    width: 80%;
+    height: 80%;
+    background: $surface;
+    border: heavy $primary;
+    padding: 1 2;
+}
+
+#detail_header {
+    height: auto;
+    padding: 0 0 1 0;
+    margin-bottom: 1;
+    border-bottom: solid $primary;
+}
+
+#detail_close_hint {
+    text-align: right;
+    color: $text-muted;
+    width: 1fr;
+}
+
+#detail_content {
+    layout: vertical;
+    height: 100%;
+}
+
+#detail_title {
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+#detail_scroll {
+    height: 1fr;
+    border: solid $primary-darken-1;
+    margin-bottom: 1;
+}
+
+#detail_info {
+    padding: 1;
+}
+
+#detail_buttons {
+    layout: horizontal;
+    height: auto;
+    align-horizontal: center;
+}
+
+/* Button styling */
+Button {
+    min-width: 12;
+}
+
+Button:hover {
+    text-style: bold;
+}
+
+Button.success {
+    background: $success;
+}
+
+Button.error {
+    background: $error;
+}
+
+/* Header and Footer */
+Header {
+    background: $primary;
+    color: $text;
+}
+
+Footer {
+    background: $panel;
+}

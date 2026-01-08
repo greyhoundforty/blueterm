@@ -1,0 +1,36 @@
+[tools]
+python = "3.12"
+
+[tasks.install]
+description = "Install blueterm in development mode with dev dependencies"
+run = "pip install -e '.[dev]'"
+
+[tasks.test]
+description = "Run test suite with coverage"
+run = "pytest --cov=src/blueterm --cov-report=html tests/"
+
+[tasks.lint]
+description = "Run ruff linter"
+run = "ruff check src/ tests/"
+
+[tasks.format]
+description = "Format code with ruff"
+run = "ruff format src/ tests/"
+
+[tasks.type-check]
+description = "Run mypy type checking"
+run = "mypy src/blueterm"
+
+[tasks.dev]
+alias = "run"
+
+[tasks.run]
+description = "Run blueterm application"
+run = "python -m blueterm"
+
+[tasks.clean]
+description = "Clean build artifacts and cache files"
+run = """
+rm -rf build/ dist/ *.egg-info .pytest_cache .coverage htmlcov/
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+"""
