@@ -1,5 +1,6 @@
 """Instance table widget using Textual DataTable"""
 from typing import List, Optional
+from enum import Enum
 
 from rich.text import Text
 from textual.widgets import DataTable
@@ -8,11 +9,20 @@ from textual.coordinate import Coordinate
 from ..api.models import Instance
 
 
+class ResourceType(Enum):
+    """Resource type for table column configuration"""
+    VPC = "vpc"
+    IKS = "iks"
+    ROKS = "roks"
+    CODE_ENGINE = "code_engine"
+
+
 class InstanceTable(DataTable):
     """
     DataTable widget displaying VPC instances with sortable columns.
 
     Columns: Name, Status, Zone, VPC, Profile, IP Address
+    Code Engine Columns: Name, Apps, Jobs, Builds, Secrets
 
     Keyboard Navigation:
         j/k or ↑/↓: Navigate rows
@@ -20,58 +30,106 @@ class InstanceTable(DataTable):
     """
 
     COLUMN_KEYS = ["name", "status", "zone", "vpc", "profile", "ip"]
+    CODE_ENGINE_COLUMN_KEYS = ["name", "apps", "jobs", "builds", "secrets"]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.instances: List[Instance] = []
         self.cursor_type = "row"
         self.zebra_stripes = True
+        self.resource_type: ResourceType = ResourceType.VPC
         self._setup_columns()
 
     def _setup_columns(self) -> None:
-        """Initialize table columns"""
-        self.add_column("Name", key="name")
-        self.add_column("Status", key="status")
-        self.add_column("Zone", key="zone")
-        self.add_column("VPC", key="vpc")
-        self.add_column("Profile", key="profile")
-        self.add_column("IP Address", key="ip")
+        """Initialize table columns based on resource type"""
+        self.clear(columns=True)
+        
+        if self.resource_type == ResourceType.CODE_ENGINE:
+            self.add_column("Name", key="name")
+            self.add_column("Apps", key="apps")
+            self.add_column("Jobs", key="jobs")
+            self.add_column("Builds", key="builds")
+            self.add_column("Secrets", key="secrets")
+        else:
+            self.add_column("Name", key="name")
+            self.add_column("Status", key="status")
+            self.add_column("Zone", key="zone")
+            self.add_column("VPC", key="vpc")
+            self.add_column("Profile", key="profile")
+            self.add_column("IP Address", key="ip")
 
-    def update_instances(self, instances: List[Instance]) -> None:
+    def set_resource_type(self, resource_type: ResourceType) -> None:
+        """
+        Set the resource type and update columns accordingly
+        
+        Args:
+            resource_type: The resource type to display
+        """
+        if self.resource_type != resource_type:
+            self.resource_type = resource_type
+            self._setup_columns()
+
+    def update_instances(self, instances: List[Instance], project_counts: Optional[dict] = None) -> None:
         """
         Update table with new instance list
 
         Args:
             instances: List of Instance objects to display
+            project_counts: Optional dict mapping project IDs to counts (for Code Engine)
+                           Format: {project_id: {"apps": int, "jobs": int, "builds": int, "secrets": int}}
         """
         self.instances = instances
         self.clear()
 
         if not instances:
             # Show empty state message
-            self.add_row(
-                Text("No instances found", style="dim italic"),
-                "", "", "", "", "",
-                key="empty"
-            )
+            if self.resource_type == ResourceType.CODE_ENGINE:
+                self.add_row(
+                    Text("No projects found", style="dim italic"),
+                    "", "", "", "",
+                    key="empty"
+                )
+            else:
+                self.add_row(
+                    Text("No instances found", style="dim italic"),
+                    "", "", "", "", "",
+                    key="empty"
+                )
             return
 
         for instance in instances:
-            # Style status with color and symbol
-            status_text = Text(
-                f"{instance.status.symbol} {instance.status.value}",
-                style=instance.status.color
-            )
+            if self.resource_type == ResourceType.CODE_ENGINE:
+                # For Code Engine, show project name and counts
+                counts = project_counts.get(instance.id, {}) if project_counts else {}
+                apps_count = counts.get("apps", 0)
+                jobs_count = counts.get("jobs", 0)
+                builds_count = counts.get("builds", 0)
+                secrets_count = counts.get("secrets", 0)
+                
+                self.add_row(
+                    instance.name,
+                    Text(str(apps_count), style="cyan"),
+                    Text(str(jobs_count), style="yellow"),
+                    Text(str(builds_count), style="green"),
+                    Text(str(secrets_count), style="magenta"),
+                    key=instance.id
+                )
+            else:
+                # For VPC/IKS/ROKS, show standard columns
+                status_text = Text(
+                    f"{instance.status.symbol} {instance.status.value}",
+                    style=instance.status.color
+                )
 
-            self.add_row(
-                instance.name,
-                status_text,
-                instance.zone,
-                instance.vpc_name,
-                instance.profile,
-                instance.primary_ip or "N/A",
-                key=instance.id
-            )
+                self.add_row(
+                    instance.name,
+                    status_text,
+                    instance.zone,
+                    instance.vpc_name,
+                    instance.profile,
+                    instance.primary_ip or "N/A",
+                    key=instance.id
+                )
 
     def get_selected_instance(self) -> Optional[Instance]:
         """

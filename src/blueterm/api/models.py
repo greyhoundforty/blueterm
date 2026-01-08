@@ -119,3 +119,80 @@ class Instance:
 
     def __repr__(self) -> str:
         return f"Instance(id='{self.short_id}...', name='{self.name}', status={self.status.value})"
+
+
+@dataclass
+class CodeEngineProject:
+    """IBM Cloud Code Engine Project"""
+    id: str
+    name: str
+    region: str
+    resource_group_id: str
+    status: str  # active, inactive, creating, deleting, failed
+    created_at: str
+    crn: str
+    entity_tag: Optional[str] = None
+    apps_count: int = 0
+    jobs_count: int = 0
+    builds_count: int = 0
+    secrets_count: int = 0
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"CodeEngineProject(name='{self.name}', id='{self.id[:8]}...', status='{self.status}')"
+
+
+@dataclass
+class CodeEngineApp:
+    """IBM Cloud Code Engine Application"""
+    id: str
+    name: str
+    project_id: str
+    status: str  # ready, deploying, failed, etc.
+    created_at: str
+    updated_at: Optional[str] = None
+    entity_tag: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"CodeEngineApp(name='{self.name}', id='{self.id[:8]}...', status='{self.status}')"
+
+
+@dataclass
+class CodeEngineJob:
+    """IBM Cloud Code Engine Job"""
+    id: str
+    name: str
+    project_id: str
+    status: str  # ready, running, failed, etc.
+    created_at: str
+    updated_at: Optional[str] = None
+    entity_tag: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"CodeEngineJob(name='{self.name}', id='{self.id[:8]}...', status='{self.status}')"
+
+
+@dataclass
+class CodeEngineBuild:
+    """IBM Cloud Code Engine Build"""
+    id: str
+    name: str
+    project_id: str
+    status: str  # ready, running, failed, etc.
+    created_at: str
+    updated_at: Optional[str] = None
+    entity_tag: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"CodeEngineBuild(name='{self.name}', id='{self.id[:8]}...', status='{self.status}')"

@@ -1,5 +1,8 @@
 """Main Blueterm Application"""
 from typing import Optional, List
+import json
+import asyncio
+from pathlib import Path
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -7,6 +10,17 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer
 from textual.worker import Worker, WorkerState
+from icecream import ic
+
+# Get the package directory for CSS path
+# Handle both installed package and source development
+PACKAGE_DIR = Path(__file__).parent
+# If CSS doesn't exist in package dir, try source location (for development)
+CSS_SOURCE_PATH = PACKAGE_DIR / "styles" / "app.tcss"
+if not CSS_SOURCE_PATH.exists():
+    # Try source location (when running from source)
+    SOURCE_DIR = Path(__file__).parent.parent.parent.parent / "src" / "blueterm"
+    CSS_SOURCE_PATH = SOURCE_DIR / "styles" / "app.tcss"
 
 from .config import Config, UserPreferences
 from .api.client import IBMCloudClient
@@ -14,13 +28,15 @@ from .api.iks_client import IKSClient
 from .api.roks_client import ROKSClient
 from .api.code_engine_client import CodeEngineClient
 from .api.resource_manager_client import ResourceManagerClient
-from .api.models import Region, Instance, ResourceGroup
+from .api.models import (
+    Region, Instance, ResourceGroup, InstanceStatus,
+    CodeEngineProject, CodeEngineApp, CodeEngineJob, CodeEngineBuild
+)
 from .api.exceptions import AuthenticationError, ConfigurationError
 from .widgets.region_selector import RegionSelector
 from .widgets.resource_type_selector import ResourceTypeSelector, ResourceType
-from .widgets.resource_group_selector import ResourceGroupSelector
 from .widgets.info_bar import InfoBar
-from .widgets.instance_table import InstanceTable
+from .widgets.instance_table import InstanceTable, ResourceType as TableResourceType
 from .widgets.status_bar import StatusBar
 from .widgets.search_input import SearchInput
 from .widgets.detail_panel import DetailPanel
@@ -60,7 +76,7 @@ class BluetermApp(App):
             ?: Show help
     """
 
-    CSS_PATH = "styles/app.tcss"
+    CSS_PATH = str(CSS_SOURCE_PATH)
     TITLE = "Blueterm - IBM Cloud VPC Manager"
 
     BINDINGS = [
@@ -149,6 +165,13 @@ class BluetermApp(App):
         self.filtered_instances: List[Instance] = []
         self.search_query: str = ""
         self._refresh_timer = None  # Auto-refresh timer
+        
+        # Code Engine specific state
+        self.selected_project: Optional[CodeEngineProject] = None
+        self.project_apps: List[CodeEngineApp] = []
+        self.project_jobs: List[CodeEngineJob] = []
+        self.project_builds: List[CodeEngineBuild] = []
+        self.project_resources_view: str = "apps"  # "apps", "jobs", "builds"
 
     def compose(self) -> ComposeResult:
         """Compose the main application layout with left sidebar"""
@@ -161,7 +184,6 @@ class BluetermApp(App):
             # Main content area (right side)
             with Vertical(id="main_container"):
                 yield RegionSelector(id="region_selector")
-                yield ResourceGroupSelector(id="resource_group_selector")
                 yield InstanceTable(id="instance_table")
                 yield SearchInput(id="search_input")
 
@@ -178,11 +200,13 @@ class BluetermApp(App):
         # Start time update timer (update every second)
         self.set_interval(1.0, self._update_time_display)
 
-        # Load resource groups first (needed for Code Engine)
-        self.load_resource_groups()
-
-        # Load regions
+        # Load regions first (needed for UI display)
         self.load_regions()
+        
+        # Load resource groups after regions (needed for Code Engine)
+        # Note: load_resource_groups is a worker, so it runs asynchronously
+        # We'll set resource groups on region selector when they load
+        self.load_resource_groups()
 
         # Start auto-refresh if enabled
         if self.preferences.auto_refresh_enabled:
@@ -196,30 +220,68 @@ class BluetermApp(App):
         except:
             pass
 
-    @work(thread=True, exclusive=True)
+    @work(thread=True)
     async def load_resource_groups(self) -> None:
         """Load available resource groups from API"""
         try:
+            # Access UI directly (Textual workers handle thread safety)
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_loading(True)
 
             self.resource_groups = await self.resource_manager_client.list_resource_groups()
+            ic(f"Loaded {len(self.resource_groups)} resource groups")
 
             if self.resource_groups:
                 # Select first resource group by default
                 self.current_resource_group = self.resource_groups[0]
+                ic(f"Selected resource group: {self.current_resource_group.name}")
 
-                resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
-                resource_group_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+                # Set resource group on region selector (must be done in main thread)
+                # This will update even if regions haven't loaded yet
+                def update_region_selector():
+                    try:
+                        region_selector = self.query_one("#region_selector", RegionSelector)
+                        ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
+                        region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+                        ic(f"Region selector resource group set to: {region_selector.selected_resource_group}")
+                        # Force display update
+                        region_selector._update_display()
+                    except Exception as e:
+                        ic(f"ERROR: Failed to update region selector with resource groups: {e}")
+
+                self.call_from_thread(update_region_selector)
 
                 # Set resource group on Code Engine client
                 self.code_engine_client.set_resource_group(self.current_resource_group.id)
 
+                # Update InfoBar with resource group (must be done in main thread)
+                def update_info_bar():
+                    try:
+                        info_bar = self.query_one("#info_bar", InfoBar)
+                        info_bar.set_resource_group(self.current_resource_group)
+                    except Exception as e:
+                        ic(f"Warning: Failed to update info bar with resource group: {e}")
+
+                self.call_from_thread(update_info_bar)
+            else:
+                ic("No resource groups returned from API")
+
+            # Update status bar (Textual workers handle thread safety)
+            status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_loading(False)
 
         except Exception as e:
             # Non-fatal error - resource groups are optional for VPC/IKS/ROKS
-            print(f"Warning: Failed to load resource groups: {e}")
+            ic(f"ERROR: Failed to load resource groups: {e}")
+            # Show error in status bar
+            def show_error():
+                try:
+                    status_bar = self.query_one("#status_bar", StatusBar)
+                    status_bar.set_loading(False)
+                    status_bar.set_message(f"Warning: Could not load resource groups: {str(e)[:50]}", "warning")
+                except:
+                    pass
+            self.call_from_thread(show_error)
 
     @work(thread=True, exclusive=True)
     async def load_regions(self) -> None:
@@ -229,6 +291,7 @@ class BluetermApp(App):
             status_bar.set_loading(True)
 
             self.regions = await self.client.list_regions()
+            ic(f"Loaded {len(self.regions)} regions from API")
 
             # Set default region
             default = next(
@@ -239,14 +302,31 @@ class BluetermApp(App):
             if default:
                 self.current_region = default
                 self.client.set_region(default.name)
+                # Also set region on Code Engine client if it's the active resource type
+                if self.current_resource_type == ResourceType.CODE_ENGINE:
+                    self.code_engine_client.set_region(default.name)
 
                 region_selector = self.query_one("#region_selector", RegionSelector)
                 region_selector.set_regions(self.regions, default)
+                ic(f"Set {len(self.regions)} regions on region selector")
+                
+                # Also set resource groups on region selector if available
+                ic(f"Resource groups available: {len(self.resource_groups)}, current: {self.current_resource_group}")
+                if self.resource_groups:
+                    ic(f"Setting resource groups on region selector: {[rg.name for rg in self.resource_groups]}")
+                    region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+                elif self.current_resource_group:
+                    # If we have a current resource group but no list, just set it
+                    ic(f"Setting single resource group: {self.current_resource_group.name}")
+                    region_selector.set_resource_group(self.current_resource_group)
+                else:
+                    ic("No resource groups available to set on region selector")
 
-                # Update info bar with region
+                # Update info bar with region and resource group
                 try:
                     info_bar = self.query_one("#info_bar", InfoBar)
                     info_bar.set_region(default)
+                    info_bar.set_resource_group(self.current_resource_group)
                 except:
                     pass
 
@@ -289,11 +369,42 @@ class BluetermApp(App):
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_loading(True)
 
+            # For Code Engine, ensure resource group and region are set
+            if self.current_resource_type == ResourceType.CODE_ENGINE:
+                # Set region on Code Engine client
+                if self.code_engine_client._current_region != self.current_region.name:
+                    ic(f"Setting region on Code Engine client: {self.current_region.name}")
+                    self.code_engine_client.set_region(self.current_region.name)
+                
+                if not self.current_resource_group:
+                    ic("No resource group set for Code Engine - trying to load all projects")
+                    # Don't return - let it try to load all projects in the region
+                else:
+                    # Ensure Code Engine client has the resource group set
+                    if self.code_engine_client._resource_group_id != self.current_resource_group.id:
+                        ic(f"Setting resource group on Code Engine client: {self.current_resource_group.id}")
+                        self.code_engine_client.set_resource_group(self.current_resource_group.id)
+
             self.instances = await self.client.list_instances(self.current_region.name)
             self.apply_search_filter()
 
             instance_table = self.query_one("#instance_table", InstanceTable)
-            instance_table.update_instances(self.filtered_instances)
+            
+            # Set resource type on table to configure columns
+            table_resource_type_map = {
+                ResourceType.VPC: TableResourceType.VPC,
+                ResourceType.IKS: TableResourceType.IKS,
+                ResourceType.ROKS: TableResourceType.ROKS,
+                ResourceType.CODE_ENGINE: TableResourceType.CODE_ENGINE,
+            }
+            instance_table.set_resource_type(table_resource_type_map[self.current_resource_type])
+            
+            # For Code Engine, fetch counts for each project
+            project_counts = None
+            if self.current_resource_type == ResourceType.CODE_ENGINE:
+                project_counts = await self._fetch_code_engine_project_counts()
+            
+            instance_table.update_instances(self.filtered_instances, project_counts)
 
             # Update statistics
             running = sum(1 for i in self.instances if i.status.value == "running")
@@ -326,6 +437,186 @@ class BluetermApp(App):
                 )
             )
 
+    async def _fetch_code_engine_project_counts(self) -> dict:
+        """
+        Fetch counts of apps, jobs, builds, and secrets for each Code Engine project
+        
+        Returns:
+            Dict mapping project_id to counts: {project_id: {"apps": int, "jobs": int, "builds": int, "secrets": int}}
+        """
+        project_counts = {}
+        
+        if not self.instances:
+            return project_counts
+        
+        try:
+            # Fetch counts for all projects in parallel
+            import asyncio
+            tasks = []
+            for instance in self.instances:
+                tasks.append(self._fetch_single_project_counts(instance.id))
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    ic(f"Error fetching counts for project {self.instances[i].id}: {result}")
+                    project_counts[self.instances[i].id] = {"apps": 0, "jobs": 0, "builds": 0, "secrets": 0}
+                else:
+                    project_counts[self.instances[i].id] = result
+                    
+        except Exception as e:
+            ic(f"Error fetching project counts: {e}")
+        
+        return project_counts
+
+    async def _fetch_single_project_counts(self, project_id: str) -> dict:
+        """Fetch counts for a single project"""
+        try:
+            apps, jobs, builds, secrets = await asyncio.gather(
+                self.code_engine_client.list_apps(project_id),
+                self.code_engine_client.list_jobs(project_id),
+                self.code_engine_client.list_builds(project_id),
+                self.code_engine_client.list_secrets(project_id),
+                return_exceptions=True
+            )
+            
+            apps_count = len(apps) if not isinstance(apps, Exception) else 0
+            jobs_count = len(jobs) if not isinstance(jobs, Exception) else 0
+            builds_count = len(builds) if not isinstance(builds, Exception) else 0
+            secrets_count = len(secrets) if not isinstance(secrets, Exception) else 0
+            
+            return {
+                "apps": apps_count,
+                "jobs": jobs_count,
+                "builds": builds_count,
+                "secrets": secrets_count
+            }
+        except Exception as e:
+            ic(f"Error fetching counts for project {project_id}: {e}")
+            return {"apps": 0, "jobs": 0, "builds": 0, "secrets": 0}
+
+    @work(thread=True, exclusive=True)
+    async def load_project_resources(self, project_id: str) -> None:
+        """Load apps, jobs, and builds for a Code Engine project"""
+        try:
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_loading(True)
+
+            # Load all project resources in parallel
+            apps, jobs, builds = await asyncio.gather(
+                self.code_engine_client.list_apps(project_id),
+                self.code_engine_client.list_jobs(project_id),
+                self.code_engine_client.list_builds(project_id),
+                return_exceptions=True
+            )
+
+            # Handle exceptions
+            if isinstance(apps, Exception):
+                ic(f"Error loading apps: {apps}")
+                apps = []
+            if isinstance(jobs, Exception):
+                ic(f"Error loading jobs: {jobs}")
+                jobs = []
+            if isinstance(builds, Exception):
+                ic(f"Error loading builds: {builds}")
+                builds = []
+
+            self.project_apps = apps
+            self.project_jobs = jobs
+            self.project_builds = builds
+
+            # Update the instance table with project resources
+            # For now, show apps by default
+            self._update_project_resources_display()
+
+            status_bar.set_loading(False)
+            status_bar.set_message(
+                f"Project: {len(apps)} apps, {len(jobs)} jobs, {len(builds)} builds",
+                "success"
+            )
+
+        except Exception as e:
+            ic(f"Error loading project resources: {e}")
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_loading(False)
+            status_bar.set_message(f"Failed to load project resources: {str(e)[:50]}", "error")
+
+    def _update_project_resources_display(self) -> None:
+        """Update instance table to show Code Engine project resources"""
+        instance_table = self.query_one("#instance_table", InstanceTable)
+        
+        # Convert Code Engine resources to Instance objects for display
+        resources = []
+        
+        if self.project_resources_view == "apps":
+            for app in self.project_apps:
+                status_map = {
+                    "ready": InstanceStatus.RUNNING,
+                    "deploying": InstanceStatus.STARTING,
+                    "failed": InstanceStatus.FAILED,
+                    "stopped": InstanceStatus.STOPPED,
+                }
+                instance = Instance(
+                    id=app.id,
+                    name=app.name,
+                    status=status_map.get(app.status, InstanceStatus.PENDING),
+                    zone=self.current_region.name if self.current_region else "N/A",
+                    vpc_name="Application",
+                    vpc_id=app.project_id,
+                    profile="App",
+                    primary_ip=None,
+                    created_at=app.created_at,
+                    crn=""
+                )
+                resources.append(instance)
+        elif self.project_resources_view == "jobs":
+            for job in self.project_jobs:
+                status_map = {
+                    "ready": InstanceStatus.RUNNING,
+                    "running": InstanceStatus.RUNNING,
+                    "failed": InstanceStatus.FAILED,
+                    "stopped": InstanceStatus.STOPPED,
+                }
+                instance = Instance(
+                    id=job.id,
+                    name=job.name,
+                    status=status_map.get(job.status, InstanceStatus.PENDING),
+                    zone=self.current_region.name if self.current_region else "N/A",
+                    vpc_name="Job",
+                    vpc_id=job.project_id,
+                    profile="Job",
+                    primary_ip=None,
+                    created_at=job.created_at,
+                    crn=""
+                )
+                resources.append(instance)
+        elif self.project_resources_view == "builds":
+            for build in self.project_builds:
+                status_map = {
+                    "ready": InstanceStatus.RUNNING,
+                    "running": InstanceStatus.RUNNING,
+                    "failed": InstanceStatus.FAILED,
+                    "stopped": InstanceStatus.STOPPED,
+                }
+                instance = Instance(
+                    id=build.id,
+                    name=build.name,
+                    status=status_map.get(build.status, InstanceStatus.PENDING),
+                    zone=self.current_region.name if self.current_region else "N/A",
+                    vpc_name="Build",
+                    vpc_id=build.project_id,
+                    profile="Build",
+                    primary_ip=None,
+                    created_at=build.created_at,
+                    crn=""
+                )
+                resources.append(instance)
+
+        self.instances = resources
+        self.filtered_instances = resources
+        instance_table.update_instances(resources, None)
+
     def apply_search_filter(self) -> None:
         """Filter instances based on search query"""
         if not self.search_query:
@@ -341,6 +632,14 @@ class BluetermApp(App):
     def on_region_selector_region_changed(self, message) -> None:
         """Handle region change event"""
         self.current_region = message.region
+        
+        # Update InfoBar with new region
+        try:
+            info_bar = self.query_one("#info_bar", InfoBar)
+            info_bar.set_region(message.region)
+        except:
+            pass
+        
         self.load_instances()
 
     def on_search_input_search_changed(self, message) -> None:
@@ -349,7 +648,7 @@ class BluetermApp(App):
         self.apply_search_filter()
 
         instance_table = self.query_one("#instance_table", InstanceTable)
-        instance_table.update_instances(self.filtered_instances)
+        instance_table.update_instances(self.filtered_instances, None)
 
     def on_search_input_search_cancelled(self) -> None:
         """Handle search cancellation"""
@@ -357,7 +656,7 @@ class BluetermApp(App):
         self.apply_search_filter()
 
         instance_table = self.query_one("#instance_table", InstanceTable)
-        instance_table.update_instances(self.filtered_instances)
+        instance_table.update_instances(self.filtered_instances, None)
 
     def on_resource_type_selector_resource_type_changed(self, message) -> None:
         """Handle resource type change event"""
@@ -372,6 +671,24 @@ class BluetermApp(App):
         }
         self.client = client_map[message.resource_type]
 
+        # Update resource type display in region selector
+        resource_type_display_map = {
+            ResourceType.VPC: "VPC Instances",
+            ResourceType.IKS: "IKS Clusters",
+            ResourceType.ROKS: "ROKS Clusters",
+            ResourceType.CODE_ENGINE: "Code Engine Projects",
+        }
+        region_selector = self.query_one("#region_selector", RegionSelector)
+        region_selector.set_resource_type_display(resource_type_display_map[message.resource_type])
+
+        # Reset Code Engine project selection when switching away
+        if message.resource_type != ResourceType.CODE_ENGINE:
+            self.selected_project = None
+            self.project_apps = []
+            self.project_jobs = []
+            self.project_builds = []
+            self.project_resources_view = "apps"
+
         # Show notification
         status_bar = self.query_one("#status_bar", StatusBar)
         status_bar.set_message(f"Switched to {message.resource_type.value}", "info")
@@ -379,20 +696,58 @@ class BluetermApp(App):
         # Reload regions for new resource type
         self.load_regions()
 
-    def on_resource_group_selector_resource_group_changed(self, message) -> None:
-        """Handle resource group change event"""
-        self.current_resource_group = message.resource_group
+    def on_region_selector_resource_group_selection_requested(self, message) -> None:
+        """Handle resource group selection request from region selector - open modal"""
+        if not self.resource_groups:
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_message("No resource groups available", "error")
+            return
 
-        # Update Code Engine client with new resource group
-        self.code_engine_client.set_resource_group(message.resource_group.id)
+        # Open resource group selection modal
+        def handle_selection(selected_rg: Optional[ResourceGroup]) -> None:
+            if selected_rg:
+                # Update region selector with new resource group
+                region_selector = self.query_one("#region_selector", RegionSelector)
+                region_selector.set_resource_group(selected_rg)
+                
+                # Update app state
+                self.current_resource_group = selected_rg
 
-        # Show notification
-        status_bar = self.query_one("#status_bar", StatusBar)
-        status_bar.set_message(f"Resource Group: {message.resource_group.name}", "info")
+                # Update Code Engine client with new resource group
+                self.code_engine_client.set_resource_group(selected_rg.id)
 
-        # Reload instances if viewing Code Engine
-        if self.current_resource_type == ResourceType.CODE_ENGINE:
-            self.load_instances()
+                # Update InfoBar with new resource group
+                try:
+                    info_bar = self.query_one("#info_bar", InfoBar)
+                    info_bar.set_resource_group(selected_rg)
+                except:
+                    pass
+
+                # Show notification
+                status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_message(f"Resource Group: {selected_rg.name}", "info")
+
+                # Reload instances if viewing Code Engine
+                if self.current_resource_type == ResourceType.CODE_ENGINE:
+                    self.load_instances()
+                    # Reset project selection when region changes
+                    self.selected_project = None
+                    self.project_apps = []
+                    self.project_jobs = []
+                    self.project_builds = []
+                    # Reset project selection when resource group changes
+                    self.selected_project = None
+                    self.project_apps = []
+                    self.project_jobs = []
+                    self.project_builds = []
+
+        self.push_screen(
+            ResourceGroupSelectionScreen(
+                self.resource_groups,
+                self.current_resource_group
+            ),
+            handle_selection
+        )
 
     def action_region_next(self) -> None:
         """Select next region (l or → key)"""
@@ -413,16 +768,6 @@ class BluetermApp(App):
         """Switch resource type by keyboard shortcut (v/i/r/c)"""
         resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
         resource_type_selector.select_by_key(key)
-
-    def action_resource_group_next(self) -> None:
-        """Select next resource group (g key)"""
-        resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
-        resource_group_selector.select_next()
-
-    def action_resource_group_previous(self) -> None:
-        """Select previous resource group (G key)"""
-        resource_group_selector = self.query_one("#resource_group_selector", ResourceGroupSelector)
-        resource_group_selector.select_previous()
 
     def action_refresh(self) -> None:
         """Refresh current view"""
@@ -478,17 +823,28 @@ class BluetermApp(App):
         search_input.focus_search()
 
     def action_show_details(self) -> None:
-        """Show details for selected instance in modal window"""
+        """Show details for selected instance in modal window or select Code Engine project"""
         instance_table = self.query_one("#instance_table", InstanceTable)
         selected = instance_table.get_selected_instance()
 
-        if selected:
-            # Show modal detail screen
-            self.push_screen(DetailScreen(selected))
+        if not selected:
+            return
 
-            # Debug feedback
+        # For Code Engine, Enter key selects a project and shows its resources
+        if self.current_resource_type == ResourceType.CODE_ENGINE:
+            # Find the project by matching the instance ID (projects are shown as instances)
+            # The instance ID is the project ID
+            self.load_project_resources(selected.id)
             status_bar = self.query_one("#status_bar", StatusBar)
-            status_bar.set_message(f"Showing details for {selected.name}", "info")
+            status_bar.set_message(f"Loading resources for project '{selected.name}'...", "info")
+            return
+
+        # For other resource types, show details modal
+        self.push_screen(DetailScreen(selected))
+
+        # Debug feedback
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message(f"Showing details for {selected.name}", "info")
 
     def action_start_instance(self) -> None:
         """Start selected instance"""

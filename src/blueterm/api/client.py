@@ -81,7 +81,10 @@ class IBMCloudClient:
 
     async def list_regions(self) -> List[Region]:
         """
-        Fetch all available VPC regions
+        Fetch all available VPC regions using the default us-south endpoint.
+        
+        According to IBM Cloud VPC API docs, regions should be listed from
+        the default us-south endpoint to get all available regions.
 
         Returns:
             List of Region objects sorted by name
@@ -91,14 +94,37 @@ class IBMCloudClient:
         """
         self._check_token_refresh()
         try:
+            # Save current region to restore later
+            original_region = self._current_region
+            original_url = self._service.service_url if hasattr(self._service, 'service_url') else None
+            
+            # Use us-south endpoint to list all regions (as per API docs)
+            us_south_url = "https://us-south.iaas.cloud.ibm.com/v1"
+            self._service.set_service_url(us_south_url)
+            
             response = self._service.list_regions()
+            result = response.get_result()
             regions = []
-            for region_data in response.get_result()['regions']:
+            
+            # Log the raw response for debugging
+            from icecream import ic
+            ic(f"VPC API returned {len(result.get('regions', []))} regions")
+            
+            for region_data in result.get('regions', []):
                 regions.append(Region(
                     name=region_data['name'],
                     endpoint=region_data['endpoint'],
                     status=region_data['status']
                 ))
+            
+            ic(f"Parsed {len(regions)} regions: {[r.name for r in regions]}")
+            
+            # Restore original region/URL if it was set
+            if original_url:
+                self._service.set_service_url(original_url)
+            elif original_region:
+                self.set_region(original_region)
+            
             return sorted(regions, key=lambda r: r.name)
         except ApiException as e:
             raise RegionError(f"Failed to list regions: {e.message if hasattr(e, 'message') else e}")

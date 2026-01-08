@@ -29,6 +29,7 @@ dependencies = [
     "requests>=2.31.0",
     "tomli>=2.0.0; python_version < '3.11'",
     "tomli-w>=1.0.0",
+    "icecream>=2.1.0",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+blueterm = ["styles/*.tcss"]
 
 [tool.ruff]
 line-length = 100

@@ -60,12 +60,12 @@
     color: $text-muted;
 }
 
-#profile_label, #region_label, #resource_label, #instances_label {
+#profile_label, #region_label, #rg_label, #resource_label, #instances_label {
     color: $text-muted;
     width: auto;
 }
 
-#profile_value, #current_region, #resource_value, #instances_count {
+#profile_value, #current_region, #current_resource_group, #resource_value, #instances_count {
     color: $text;
     text-style: bold;
     width: auto;
@@ -73,6 +73,15 @@
 
 #current_region {
     color: $success;
+}
+
+#current_resource_group {
+    color: $accent;
+}
+
+#change_rg_button {
+    margin-left: 1;
+    min-width: 8;
 }
 
 #instances_count {
@@ -86,32 +95,6 @@
     padding: 1 0 0 0;
 }
 
-/* Resource group selector */
-#resource_group_selector {
-    height: auto;
-    dock: top;
-    background: $surface;
-    border: solid $primary;
-    padding: 0;
-}
-
-#resource_group_bar {
-    height: 1;
-    background: $surface;
-    color: $text-muted;
-    padding: 0 2;
-}
-
-#rg_label {
-    color: $text-muted;
-    width: auto;
-}
-
-#current_resource_group {
-    color: $success;
-    text-style: bold;
-    width: auto;
-}
 
 /* Instance table */
 #instance_table {
@@ -322,6 +305,33 @@ Button.success {
 
 Button.error {
     background: $error;
+}
+
+/* Info Bar */
+#info_bar {
+    height: 1;
+    dock: top;
+    background: $surface;
+    border-bottom: solid $primary;
+    padding: 0 2;
+    width: 100%;
+}
+
+#info_bar_container {
+    layout: horizontal;
+    height: 100%;
+    align-vertical: middle;
+    width: 100%;
+    align-horizontal: right;
+}
+
+#info_region_label, #info_rg_label, #info_separator {
+    color: $text-muted;
+    width: auto;
+}
+
+#info_region_value, #info_rg_value, #info_time_value {
+    width: auto;
 }
 
 /* Header and Footer */
