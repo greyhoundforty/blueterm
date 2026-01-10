@@ -6,15 +6,16 @@ BlueTerm is a keyboard-driven TUI (Terminal User Interface) application for mana
 
 ## Features
 
-- **Multi-resource support** - VPC, IKS, ROKS, and Code Engine in one interface
+- **Multi-resource support** - VPC instances, IKS clusters, ROKS clusters, and Code Engine projects in one interface
+- **IBM Carbon Design** - Default IBM Carbon color scheme with multiple theme options
 - **Fast navigation** - Vim-style keybindings (j/k, h/l) for power users
 - **Quick region access** - Press 0-9 to jump instantly to any region
 - **Multi-region support** - Switch between all IBM Cloud regions instantly
 - **Search and filter** - Quickly find resources by name or status
-- **Instance actions** - Start, stop, and reboot instances with single keystrokes
+- **Resource actions** - Start, stop, and reboot instances/clusters with single keystrokes
 - **Real-time status** - Color-coded status indicators and live statistics
 - **Auto-refresh** - Configurable automatic refresh with toggle
-- **Theme support** - Multiple color themes with saved preferences
+- **Theme support** - IBM Carbon, Nord, Gruvbox, Dracula, and 6 more themes
 - **Code Engine integration** - View projects with app, job, build, and secret counts
 
 ## Prerequisites
@@ -114,7 +115,7 @@ blueterm
 - `Esc` - Clear search and close
 
 #### Appearance
-- `t` - Cycle through color themes
+- `t` - Cycle through color themes (IBM Carbon, Nord, Gruvbox, Dracula, and more)
 - `a` - Toggle auto-refresh on/off
 
 #### General

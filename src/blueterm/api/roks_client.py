@@ -128,10 +128,13 @@ class ROKSClient:
                 "name": "production-openshift-cluster",
                 "state": "normal",
                 "created_date": datetime.now().isoformat(),
-                "workers": 5,
+                "workers": 6,
+                "worker_pools": 2,
                 "openshift_version": "4.14.8",
                 "kubernetes_version": "1.27.8",
                 "region": self._current_region or "us-south",
+                "vpc_id": "vpc-prod-001",
+                "vpc_name": "production-vpc",
             },
             {
                 "id": "roks-cluster-002",
@@ -139,9 +142,12 @@ class ROKSClient:
                 "state": "normal",
                 "created_date": datetime.now().isoformat(),
                 "workers": 3,
-                "openshift_version": "4.14.8",
-                "kubernetes_version": "1.27.8",
+                "worker_pools": 1,
+                "openshift_version": "4.13.25",
+                "kubernetes_version": "1.26.11",
                 "region": self._current_region or "us-south",
+                "vpc_id": "vpc-dev-001",
+                "vpc_name": "development-vpc",
             },
         ]
 
@@ -177,11 +183,47 @@ class ROKSClient:
             region: Optional region to list clusters from
 
         Returns:
-            Empty list (stub - ROKS uses clusters, not instances)
+            List of Instance objects representing ROKS clusters
         """
-        # Stub: Return empty list for now
-        # TODO: Convert clusters to Instance objects or create ClusterTable widget
-        return []
+        from .models import Instance, InstanceStatus
+        from datetime import datetime
+
+        # Get cluster data
+        clusters = await self.list_clusters()
+
+        # Convert clusters to Instance objects for display
+        instances = []
+        for cluster in clusters:
+            # Map cluster state to instance status
+            status_map = {
+                "normal": InstanceStatus.RUNNING,
+                "warning": InstanceStatus.PENDING,
+                "critical": InstanceStatus.FAILED,
+                "deploying": InstanceStatus.STARTING,
+                "deleting": InstanceStatus.STOPPING,
+            }
+            status = status_map.get(cluster.get("state", "normal"), InstanceStatus.RUNNING)
+
+            # Format profile as "X workers, Y pools" for display
+            workers_count = cluster.get('workers', 0)
+            pools_count = cluster.get('worker_pools', 1)
+            profile_str = f"{workers_count} workers, {pools_count} pools"
+
+            instance = Instance(
+                id=cluster["id"],
+                name=cluster["name"],
+                status=status,
+                zone=cluster.get("region", self._current_region or "N/A"),
+                vpc_name=f"v{cluster.get('openshift_version', 'N/A')}",  # OpenShift version
+                vpc_id=cluster.get("vpc_name", cluster.get("vpc_id", "N/A")),  # VPC name or ID
+                profile=profile_str,  # "X workers, Y pools"
+                primary_ip=None,
+                created_at=cluster.get("created_date", datetime.now().isoformat()),
+                crn=""
+            )
+            instances.append(instance)
+
+        return instances
 
     async def start_instance(self, instance_id: str) -> None:
         """Stub: ROKS clusters don't have start/stop like VMs"""

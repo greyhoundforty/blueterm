@@ -29,7 +29,9 @@ class InstanceTable(DataTable):
         Enter: View instance details
     """
 
-    COLUMN_KEYS = ["name", "status", "zone", "vpc", "profile", "ip"]
+    VPC_COLUMN_KEYS = ["name", "status", "zone", "vpc", "profile", "ip"]
+    IKS_COLUMN_KEYS = ["name", "region", "vpc", "workers", "pools", "version"]
+    ROKS_COLUMN_KEYS = ["name", "region", "vpc", "workers", "pools", "version"]
     CODE_ENGINE_COLUMN_KEYS = ["name", "apps", "jobs", "builds", "secrets"]
 
     def __init__(self, **kwargs):
@@ -43,14 +45,28 @@ class InstanceTable(DataTable):
     def _setup_columns(self) -> None:
         """Initialize table columns based on resource type"""
         self.clear(columns=True)
-        
+
         if self.resource_type == ResourceType.CODE_ENGINE:
             self.add_column("Name", key="name")
             self.add_column("Apps", key="apps")
             self.add_column("Jobs", key="jobs")
             self.add_column("Builds", key="builds")
             self.add_column("Secrets", key="secrets")
-        else:
+        elif self.resource_type == ResourceType.IKS:
+            self.add_column("Name", key="name")
+            self.add_column("Region", key="region")
+            self.add_column("VPC", key="vpc")
+            self.add_column("Workers", key="workers")
+            self.add_column("Pools", key="pools")
+            self.add_column("Version", key="version")
+        elif self.resource_type == ResourceType.ROKS:
+            self.add_column("Name", key="name")
+            self.add_column("Region", key="region")
+            self.add_column("VPC", key="vpc")
+            self.add_column("Workers", key="workers")
+            self.add_column("Pools", key="pools")
+            self.add_column("Version", key="version")
+        else:  # VPC
             self.add_column("Name", key="name")
             self.add_column("Status", key="status")
             self.add_column("Zone", key="zone")
@@ -105,7 +121,7 @@ class InstanceTable(DataTable):
                 jobs_count = counts.get("jobs", 0)
                 builds_count = counts.get("builds", 0)
                 secrets_count = counts.get("secrets", 0)
-                
+
                 self.add_row(
                     instance.name,
                     Text(str(apps_count), style="cyan"),
@@ -114,8 +130,28 @@ class InstanceTable(DataTable):
                     Text(str(secrets_count), style="magenta"),
                     key=instance.id
                 )
+            elif self.resource_type in (ResourceType.IKS, ResourceType.ROKS):
+                # For IKS/ROKS clusters, show cluster-specific columns
+                # Parse metadata from vpc_name (format: "IKS v1.28.5" or "OpenShift 4.14.8")
+                # Parse metadata from profile (format: "3 workers" or "3 workers, 2 pools")
+                workers_info = instance.profile.split(",")
+                workers = workers_info[0].strip() if workers_info else "N/A"
+                pools = workers_info[1].strip() if len(workers_info) > 1 else "1 pool"
+
+                # Extract VPC from vpc_id (if available) or use placeholder
+                vpc_display = instance.vpc_id if instance.vpc_id else "N/A"
+
+                self.add_row(
+                    instance.name,
+                    instance.zone,  # Region
+                    vpc_display,    # VPC
+                    workers,        # Workers count
+                    pools,          # Worker pools count
+                    instance.vpc_name,  # Version (stored in vpc_name field)
+                    key=instance.id
+                )
             else:
-                # For VPC/IKS/ROKS, show standard columns
+                # For VPC, show standard instance columns
                 status_text = Text(
                     f"{instance.status.symbol} {instance.status.value}",
                     style=instance.status.color
@@ -166,20 +202,34 @@ class InstanceTable(DataTable):
             column: Column key to sort by
             reverse: Sort in descending order if True
         """
-        if column not in self.COLUMN_KEYS:
+        # Build appropriate column keys based on resource type
+        valid_keys = self.VPC_COLUMN_KEYS
+        if self.resource_type == ResourceType.IKS:
+            valid_keys = self.IKS_COLUMN_KEYS
+        elif self.resource_type == ResourceType.ROKS:
+            valid_keys = self.ROKS_COLUMN_KEYS
+        elif self.resource_type == ResourceType.CODE_ENGINE:
+            valid_keys = self.CODE_ENGINE_COLUMN_KEYS
+
+        if column not in valid_keys:
             return
 
+        # Common sort keys
         key_map = {
             "name": lambda i: i.name.lower(),
             "status": lambda i: i.status.value,
             "zone": lambda i: i.zone,
+            "region": lambda i: i.zone,  # Region uses zone field
             "vpc": lambda i: i.vpc_name.lower(),
             "profile": lambda i: i.profile,
-            "ip": lambda i: i.primary_ip or ""
+            "ip": lambda i: i.primary_ip or "",
+            "workers": lambda i: i.profile.split()[0] if i.profile else "",
+            "version": lambda i: i.vpc_name  # Version stored in vpc_name for clusters
         }
 
-        self.instances.sort(key=key_map[column], reverse=reverse)
-        self.update_instances(self.instances)
+        if column in key_map:
+            self.instances.sort(key=key_map[column], reverse=reverse)
+            self.update_instances(self.instances)
 
     def filter_instances(self, query: str) -> None:
         """

@@ -36,6 +36,10 @@ class RegionSelector(Widget):
         """Message emitted when user requests to change resource group"""
         pass
 
+    class ThemeCycleRequested(Message):
+        """Message emitted when user requests to cycle theme"""
+        pass
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.regions: List[Region] = []
@@ -45,19 +49,23 @@ class RegionSelector(Widget):
         self.stopped_instances: int = 0
         self.resource_groups: List[ResourceGroup] = []
         self.resource_type_display: str = "VPC Instances"
+        self.current_theme: str = "ibm-carbon"
 
     def compose(self) -> ComposeResult:
         """Compose TAWS-style layout"""
         with Vertical(id="region_panel"):
-            # Top info bar
+            # Top info bar - simplified (region, resource type, counts only)
             with Horizontal(id="region_info_bar"):
                 yield Label("Profile: ", id="profile_label")
                 yield Label("ibmcloud", id="profile_value")
                 yield Label("  Region: ", id="region_label")
                 yield Label("", id="current_region")
-                yield Label("  Resource Group: ", id="rg_label")
-                yield Label("", id="current_resource_group")
-                yield Button("Change", variant="primary", id="change_rg_button")
+                yield Label("  Resource Group: ", id="rg_label_inline")
+                yield Label("N/A", id="current_resource_group_inline")
+                yield Button("Change", variant="primary", id="change_rg_button_inline")
+                yield Label("  Theme: ", id="theme_label_inline")
+                yield Label("ibm-carbon", id="current_theme_inline")
+                yield Button("Change", variant="primary", id="change_theme_button_inline")
                 yield Label("  Resource: ", id="resource_label")
                 yield Label("VPC Instances", id="resource_value")
                 yield Label("  Instances: ", id="instances_label")
@@ -98,17 +106,22 @@ class RegionSelector(Widget):
             except:
                 pass
 
-        # Update resource group label (always update, even if regions aren't loaded yet)
+        # Update resource group display
         try:
-            current_rg_label = self.query_one("#current_resource_group", Label)
+            current_rg_label = self.query_one("#current_resource_group_inline", Label)
             if self.selected_resource_group:
-                ic(f"Updating resource group label to: {self.selected_resource_group.name}")
-                current_rg_label.update(Text(self.selected_resource_group.name, style="bold cyan"))
+                current_rg_label.update(Text(self.selected_resource_group.name, style="bold green"))
             else:
-                ic("Updating resource group label to: N/A")
-                current_rg_label.update(Text("N/A", style="dim"))
-        except Exception as e:
-            ic(f"Exception updating resource group label: {e}")
+                current_rg_label.update("N/A")
+        except:
+            pass
+
+        # Update theme display
+        try:
+            current_theme_label = self.query_one("#current_theme_inline", Label)
+            current_theme_label.update(Text(self.current_theme, style="bold cyan"))
+        except:
+            pass
 
         # Update instance counts
         try:
@@ -248,7 +261,7 @@ class RegionSelector(Widget):
 
     def set_resource_group(self, resource_group: Optional[ResourceGroup]) -> None:
         """
-        Set the selected resource group
+        Set the selected resource group and update display
 
         Args:
             resource_group: ResourceGroup to select or None
@@ -257,10 +270,23 @@ class RegionSelector(Widget):
         self._update_display()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle Change button press for resource group"""
-        if event.button.id == "change_rg_button":
+        """Handle Change button press for resource group and theme"""
+        if event.button.id == "change_rg_button_inline":
             # Emit message to request resource group selection
             self.post_message(self.ResourceGroupSelectionRequested())
+        elif event.button.id == "change_theme_button_inline":
+            # Emit message to request theme cycle
+            self.post_message(self.ThemeCycleRequested())
+
+    def set_theme(self, theme_name: str) -> None:
+        """
+        Set the current theme name for display
+
+        Args:
+            theme_name: Theme name to display
+        """
+        self.current_theme = theme_name
+        self._update_display()
 
     def update_instance_counts(self, total: int, running: int, stopped: int) -> None:
         """

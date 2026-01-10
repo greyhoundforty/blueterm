@@ -29,13 +29,8 @@ class InfoBar(Widget):
 
     def compose(self) -> ComposeResult:
         """Compose info bar layout"""
-        with Horizontal(id="info_bar_container"):
-            yield Label("Region: ", id="info_region_label")
-            yield Label("", id="info_region_value")
-            yield Label("  |  Resource Group: ", id="info_rg_label")
-            yield Label("", id="info_rg_value")
-            yield Label("  |  ", id="info_separator")
-            yield Label("", id="info_time_value")
+        from textual.widgets import Static
+        yield Static("Region: N/A  |  Resource Group: N/A  |  --:--:--", id="info_bar_text")
 
     def set_region(self, region: Optional[Region]) -> None:
         """
@@ -72,17 +67,20 @@ class InfoBar(Widget):
     def _update_display(self) -> None:
         """Update all display values"""
         try:
-            # Update region
-            region_value = self.query_one("#info_region_value", Label)
-            region_value.update(Text(self.current_region or "N/A", style="bold cyan"))
+            from textual.widgets import Static
+            from rich.text import Text
 
-            # Update resource group
-            rg_value = self.query_one("#info_rg_value", Label)
-            rg_value.update(Text(self.current_resource_group or "N/A", style="bold green"))
+            # Build formatted text with colors
+            region_text = Text("Region: ", style="dim")
+            region_text.append(self.current_region or "N/A", style="bold cyan")
+            region_text.append("  |  Resource Group: ", style="dim")
+            region_text.append(self.current_resource_group or "N/A", style="bold green")
+            region_text.append("  |  ", style="dim")
+            region_text.append(self.current_time or "--:--:--", style="bold yellow")
 
-            # Update time
-            time_value = self.query_one("#info_time_value", Label)
-            time_value.update(Text(self.current_time, style="bold yellow"))
+            # Update the static widget
+            info_bar_text = self.query_one("#info_bar_text", Static)
+            info_bar_text.update(region_text)
         except:
             # Widgets not yet mounted
             pass

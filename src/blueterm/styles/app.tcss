@@ -1,4 +1,5 @@
 /* Blueterm Textual CSS Styling */
+/* IBM Carbon Design System colors applied via textual-dark base theme */
 
 /* App layout - horizontal split */
 #app_layout {
@@ -39,19 +40,19 @@
     width: 1fr;
 }
 
-/* Region selector at top - TAWS style */
+/* Region selector - TAWS style (no dock, part of main flow) */
 #region_selector {
     height: auto;
-    dock: top;
     background: $surface;
     border: solid $primary;
     padding: 0;
+    margin-bottom: 0;
 }
 
 #region_panel {
     height: auto;
     background: $surface;
-    padding: 1;
+    padding: 0 1;
 }
 
 #region_info_bar {
@@ -60,12 +61,12 @@
     color: $text-muted;
 }
 
-#profile_label, #region_label, #rg_label, #resource_label, #instances_label {
+#profile_label, #region_label, #resource_label, #instances_label {
     color: $text-muted;
     width: auto;
 }
 
-#profile_value, #current_region, #current_resource_group, #resource_value, #instances_count {
+#profile_value, #current_region, #resource_value, #instances_count {
     color: $text;
     text-style: bold;
     width: auto;
@@ -73,15 +74,6 @@
 
 #current_region {
     color: $success;
-}
-
-#current_resource_group {
-    color: $accent;
-}
-
-#change_rg_button {
-    margin-left: 1;
-    min-width: 8;
 }
 
 #instances_count {
@@ -92,7 +84,43 @@
     height: auto;
     background: $surface;
     color: $text;
-    padding: 1 0 0 0;
+    padding: 0;
+}
+
+/* Inline Resource Group in Region Info Bar */
+#rg_label_inline {
+    color: $text-muted;
+    width: auto;
+}
+
+#current_resource_group_inline {
+    color: $success;
+    text-style: bold;
+    width: auto;
+}
+
+#change_rg_button_inline {
+    margin-left: 1;
+    min-width: 8;
+    height: 1;
+}
+
+/* Inline Theme Selector in Region Info Bar */
+#theme_label_inline {
+    color: $text-muted;
+    width: auto;
+}
+
+#current_theme_inline {
+    color: $accent;
+    text-style: bold;
+    width: auto;
+}
+
+#change_theme_button_inline {
+    margin-left: 1;
+    min-width: 8;
+    height: 1;
 }
 
 
@@ -307,31 +335,18 @@ Button.error {
     background: $error;
 }
 
-/* Info Bar */
+/* Info Bar - top display */
 #info_bar {
     height: 1;
-    dock: top;
-    background: $surface;
+    background: $panel;
     border-bottom: solid $primary;
-    padding: 0 2;
     width: 100%;
 }
 
-#info_bar_container {
-    layout: horizontal;
-    height: 100%;
-    align-vertical: middle;
-    width: 100%;
-    align-horizontal: right;
-}
-
-#info_region_label, #info_rg_label, #info_separator {
-    color: $text-muted;
-    width: auto;
-}
-
-#info_region_value, #info_rg_value, #info_time_value {
-    width: auto;
+#info_bar_text {
+    height: 1;
+    padding-left: 2;
+    background: $panel;
 }
 
 /* Header and Footer */

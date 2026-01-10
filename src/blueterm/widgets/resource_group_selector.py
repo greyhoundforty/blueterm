@@ -42,7 +42,7 @@ class ResourceGroupSelector(Widget):
         """Compose resource group selector layout"""
         with Horizontal(id="resource_group_bar"):
             yield Label("  Resource Group: ", id="rg_label")
-            yield Label("", id="current_resource_group")
+            yield Label("N/A", id="current_resource_group")
             yield Button("Change", variant="primary", id="change_rg_button")
 
     def set_resource_groups(self, resource_groups: List[ResourceGroup], selected: Optional[ResourceGroup] = None) -> None:
@@ -75,7 +75,6 @@ class ResourceGroupSelector(Widget):
         try:
             current_rg_label = self.query_one("#current_resource_group", Label)
             if self.selected_resource_group:
-                # Show resource group name in green
                 current_rg_label.update(Text(self.selected_resource_group.name, style="bold green"))
         except:
             pass

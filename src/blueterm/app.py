@@ -10,6 +10,7 @@ from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Header, Footer
 from textual.worker import Worker, WorkerState
+from textual.theme import Theme
 from icecream import ic
 
 # Get the package directory for CSS path
@@ -79,6 +80,26 @@ class BluetermApp(App):
     CSS_PATH = str(CSS_SOURCE_PATH)
     TITLE = "Blueterm - IBM Cloud VPC Manager"
 
+    # IBM Carbon Design System Theme
+    # Based on Carbon dark theme (Gray 100 background)
+    IBM_CARBON_THEME = Theme(
+        name="ibm-carbon",
+        primary="#0f62fe",           # Blue 60 - IBM brand blue
+        secondary="#393939",         # Gray 80
+        warning="#f1c21b",           # Yellow 30
+        error="#da1e28",             # Red 60
+        success="#24a148",           # Green 50
+        accent="#78a9ff",            # Blue 40 - lighter for contrast
+        foreground="#f4f4f4",        # Gray 10 - main text
+        background="#161616",        # Gray 100 - darkest background
+        surface="#262626",           # Gray 90 - surface/panel
+        panel="#262626",             # Gray 90 - same as surface
+        dark=True,
+        variables={
+            "text-muted": "#c6c6c6",  # Gray 30 - secondary text
+        }
+    )
+
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
         Binding("question_mark", "help", "Help"),
@@ -115,6 +136,7 @@ class BluetermApp(App):
 
     # Available color themes
     THEMES = [
+        "ibm-carbon",         # IBM Carbon Design System (default)
         "textual-dark",
         "textual-light",
         "nord",
@@ -128,6 +150,10 @@ class BluetermApp(App):
 
     def __init__(self):
         super().__init__()
+
+        # Register IBM Carbon theme
+        self.register_theme(self.IBM_CARBON_THEME)
+
         try:
             self.config = Config.from_env()
             self.config.validate()
@@ -197,6 +223,13 @@ class BluetermApp(App):
         # Set theme from preferences
         self.theme = self.preferences.theme
 
+        # Update theme display in region selector
+        try:
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.set_theme(self.preferences.theme)
+        except:
+            pass
+
         # Start time update timer (update every second)
         self.set_interval(1.0, self._update_time_display)
 
@@ -236,20 +269,6 @@ class BluetermApp(App):
                 self.current_resource_group = self.resource_groups[0]
                 ic(f"Selected resource group: {self.current_resource_group.name}")
 
-                # Set resource group on region selector (must be done in main thread)
-                # This will update even if regions haven't loaded yet
-                def update_region_selector():
-                    try:
-                        region_selector = self.query_one("#region_selector", RegionSelector)
-                        ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
-                        region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
-                        ic(f"Region selector resource group set to: {region_selector.selected_resource_group}")
-                        # Force display update
-                        region_selector._update_display()
-                    except Exception as e:
-                        ic(f"ERROR: Failed to update region selector with resource groups: {e}")
-
-                self.call_from_thread(update_region_selector)
 
                 # Set resource group on Code Engine client
                 self.code_engine_client.set_resource_group(self.current_resource_group.id)
@@ -310,17 +329,6 @@ class BluetermApp(App):
                 region_selector.set_regions(self.regions, default)
                 ic(f"Set {len(self.regions)} regions on region selector")
                 
-                # Also set resource groups on region selector if available
-                ic(f"Resource groups available: {len(self.resource_groups)}, current: {self.current_resource_group}")
-                if self.resource_groups:
-                    ic(f"Setting resource groups on region selector: {[rg.name for rg in self.resource_groups]}")
-                    region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
-                elif self.current_resource_group:
-                    # If we have a current resource group but no list, just set it
-                    ic(f"Setting single resource group: {self.current_resource_group.name}")
-                    region_selector.set_resource_group(self.current_resource_group)
-                else:
-                    ic("No resource groups available to set on region selector")
 
                 # Update info bar with region and resource group
                 try:
@@ -698,6 +706,15 @@ class BluetermApp(App):
 
     def on_region_selector_resource_group_selection_requested(self, message) -> None:
         """Handle resource group selection request from region selector - open modal"""
+        self._open_resource_group_selector()
+
+    def on_region_selector_theme_cycle_requested(self, message) -> None:
+        """Handle theme cycle request from region selector - cycle theme"""
+        self.action_cycle_theme()
+
+
+    def _open_resource_group_selector(self) -> None:
+        """Open resource group selection modal"""
         if not self.resource_groups:
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_message("No resource groups available", "error")
@@ -706,10 +723,10 @@ class BluetermApp(App):
         # Open resource group selection modal
         def handle_selection(selected_rg: Optional[ResourceGroup]) -> None:
             if selected_rg:
-                # Update region selector with new resource group
+                # Update region selector with new resource group (includes inline display)
                 region_selector = self.query_one("#region_selector", RegionSelector)
                 region_selector.set_resource_group(selected_rg)
-                
+
                 # Update app state
                 self.current_resource_group = selected_rg
 
@@ -730,11 +747,6 @@ class BluetermApp(App):
                 # Reload instances if viewing Code Engine
                 if self.current_resource_type == ResourceType.CODE_ENGINE:
                     self.load_instances()
-                    # Reset project selection when region changes
-                    self.selected_project = None
-                    self.project_apps = []
-                    self.project_jobs = []
-                    self.project_builds = []
                     # Reset project selection when resource group changes
                     self.selected_project = None
                     self.project_apps = []
@@ -781,6 +793,13 @@ class BluetermApp(App):
 
         # Save theme preference
         self.preferences.update_theme(new_theme)
+
+        # Update theme display in region selector
+        try:
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.set_theme(new_theme)
+        except:
+            pass
 
         # Show notification of theme change
         status_bar = self.query_one("#status_bar", StatusBar)
