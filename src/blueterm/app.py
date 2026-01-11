@@ -31,7 +31,7 @@ from .api.code_engine_client import CodeEngineClient
 from .api.resource_manager_client import ResourceManagerClient
 from .api.models import (
     Region, Instance, ResourceGroup, InstanceStatus,
-    CodeEngineProject, CodeEngineApp, CodeEngineJob, CodeEngineBuild
+    CodeEngineProject, CodeEngineApp, CodeEngineJob, CodeEngineBuild, CodeEngineSecret
 )
 from .api.exceptions import AuthenticationError, ConfigurationError
 from .widgets.region_selector import RegionSelector
@@ -44,6 +44,7 @@ from .widgets.detail_panel import DetailPanel
 from .screens.detail_screen import DetailScreen
 from .screens.confirm_screen import ConfirmScreen
 from .screens.error_screen import ErrorScreen
+from .screens.code_engine_project_detail_screen import CodeEngineProjectDetailScreen
 from .screens.resource_group_selection_screen import ResourceGroupSelectionScreen
 
 
@@ -115,6 +116,7 @@ class BluetermApp(App):
         Binding("S", "stop_instance", "Stop"),
         Binding("R", "refresh", "Refresh"),
         Binding("d", "show_details", "Details"),
+        Binding("enter", "select_project", "Select", show=False),
         Binding("h", "region_previous", "Prev Region", show=False),
         Binding("l", "region_next", "Next Region", show=False),
         Binding("left", "region_previous", show=False),
@@ -132,6 +134,8 @@ class BluetermApp(App):
         Binding("9", "region_number(9)", show=False),
         Binding("t", "cycle_theme", "Theme"),
         Binding("a", "toggle_auto_refresh", "Auto-refresh"),
+        # Code Engine navigation
+        Binding("escape", "back_to_projects", "Back", show=False),
     ]
 
     # Available color themes
@@ -197,7 +201,9 @@ class BluetermApp(App):
         self.project_apps: List[CodeEngineApp] = []
         self.project_jobs: List[CodeEngineJob] = []
         self.project_builds: List[CodeEngineBuild] = []
-        self.project_resources_view: str = "apps"  # "apps", "jobs", "builds"
+        self.project_secrets: List[CodeEngineSecret] = []
+        self.project_resources_view: str = "apps"  # "apps", "jobs", "builds", "secrets"
+        self.project_counts: dict = {}  # Cache of project counts {project_id: {apps: N, jobs: N, ...}}
 
     def compose(self) -> ComposeResult:
         """Compose the main application layout with left sidebar"""
@@ -411,7 +417,9 @@ class BluetermApp(App):
             project_counts = None
             if self.current_resource_type == ResourceType.CODE_ENGINE:
                 project_counts = await self._fetch_code_engine_project_counts()
-            
+                # Store counts for use in project details modal
+                self.project_counts = project_counts
+
             instance_table.update_instances(self.filtered_instances, project_counts)
 
             # Update statistics
@@ -506,16 +514,17 @@ class BluetermApp(App):
 
     @work(thread=True, exclusive=True)
     async def load_project_resources(self, project_id: str) -> None:
-        """Load apps, jobs, and builds for a Code Engine project"""
+        """Load apps, jobs, builds, and secrets for a Code Engine project"""
         try:
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_loading(True)
 
             # Load all project resources in parallel
-            apps, jobs, builds = await asyncio.gather(
+            apps, jobs, builds, secrets = await asyncio.gather(
                 self.code_engine_client.list_apps(project_id),
                 self.code_engine_client.list_jobs(project_id),
                 self.code_engine_client.list_builds(project_id),
+                self.code_engine_client.list_secrets(project_id),
                 return_exceptions=True
             )
 
@@ -529,18 +538,22 @@ class BluetermApp(App):
             if isinstance(builds, Exception):
                 ic(f"Error loading builds: {builds}")
                 builds = []
+            if isinstance(secrets, Exception):
+                ic(f"Error loading secrets: {secrets}")
+                secrets = []
 
             self.project_apps = apps
             self.project_jobs = jobs
             self.project_builds = builds
+            self.project_secrets = secrets
 
             # Update the instance table with project resources
-            # For now, show apps by default
+            # Show apps by default
             self._update_project_resources_display()
 
             status_bar.set_loading(False)
             status_bar.set_message(
-                f"Project: {len(apps)} apps, {len(jobs)} jobs, {len(builds)} builds",
+                f"Project: {len(apps)} apps, {len(jobs)} jobs, {len(builds)} builds, {len(secrets)} secrets (Press 1/2/3/4 to switch views)",
                 "success"
             )
 
@@ -620,6 +633,22 @@ class BluetermApp(App):
                     crn=""
                 )
                 resources.append(instance)
+        elif self.project_resources_view == "secrets":
+            for secret in self.project_secrets:
+                # Secrets don't have status, so we'll show them all as RUNNING
+                instance = Instance(
+                    id=secret.id,
+                    name=secret.name,
+                    status=InstanceStatus.RUNNING,  # Secrets are always "active"
+                    zone=self.current_region.name if self.current_region else "N/A",
+                    vpc_name="Secret",
+                    vpc_id=secret.project_id,
+                    profile=secret.format,  # Show secret format as profile
+                    primary_ip=None,
+                    created_at=secret.created_at,
+                    crn=""
+                )
+                resources.append(instance)
 
         self.instances = resources
         self.filtered_instances = resources
@@ -695,7 +724,9 @@ class BluetermApp(App):
             self.project_apps = []
             self.project_jobs = []
             self.project_builds = []
+            self.project_secrets = []
             self.project_resources_view = "apps"
+            self.project_counts = {}
 
         # Show notification
         status_bar = self.query_one("#status_bar", StatusBar)
@@ -752,6 +783,8 @@ class BluetermApp(App):
                     self.project_apps = []
                     self.project_jobs = []
                     self.project_builds = []
+                    self.project_secrets = []
+                    self.project_counts = {}
 
         self.push_screen(
             ResourceGroupSelectionScreen(
@@ -772,7 +805,20 @@ class BluetermApp(App):
         region_selector.select_previous()
 
     def action_region_number(self, number: int) -> None:
-        """Select region by number key (0-9)"""
+        """Select region by number key (0-9) or switch Code Engine view (1-4 when in project view)"""
+        # If viewing Code Engine project resources, use 1-4 to switch views
+        if self.current_resource_type == ResourceType.CODE_ENGINE and self.selected_project is not None:
+            if number == 1:
+                self.action_switch_ce_view("apps")
+            elif number == 2:
+                self.action_switch_ce_view("jobs")
+            elif number == 3:
+                self.action_switch_ce_view("builds")
+            elif number == 4:
+                self.action_switch_ce_view("secrets")
+            return
+
+        # Otherwise, select region by number
         region_selector = self.query_one("#region_selector", RegionSelector)
         region_selector.select_by_number(number)
 
@@ -842,28 +888,129 @@ class BluetermApp(App):
         search_input.focus_search()
 
     def action_show_details(self) -> None:
-        """Show details for selected instance in modal window or select Code Engine project"""
+        """Show details for selected instance or Code Engine project in modal window"""
         instance_table = self.query_one("#instance_table", InstanceTable)
         selected = instance_table.get_selected_instance()
 
         if not selected:
             return
 
-        # For Code Engine, Enter key selects a project and shows its resources
-        if self.current_resource_type == ResourceType.CODE_ENGINE:
-            # Find the project by matching the instance ID (projects are shown as instances)
-            # The instance ID is the project ID
-            self.load_project_resources(selected.id)
-            status_bar = self.query_one("#status_bar", StatusBar)
-            status_bar.set_message(f"Loading resources for project '{selected.name}'...", "info")
+        # For Code Engine projects, show project details modal
+        if self.current_resource_type == ResourceType.CODE_ENGINE and self.selected_project is None:
+            # Viewing project list - show project details
+            # Convert Instance back to CodeEngineProject for display
+            # (The Instance represents a project when selected_project is None)
+
+            # Get counts from cached project_counts
+            counts = self.project_counts.get(selected.id, {
+                "apps": 0, "jobs": 0, "builds": 0, "secrets": 0
+            })
+
+            project = CodeEngineProject(
+                id=selected.id,
+                name=selected.name,
+                region=selected.zone,
+                resource_group_id=selected.vpc_id,
+                status="active",  # Assume active if showing in list
+                created_at=selected.created_at,
+                crn=selected.crn,
+                entity_tag=None,
+                apps_count=counts.get("apps", 0),
+                jobs_count=counts.get("jobs", 0),
+                builds_count=counts.get("builds", 0),
+                secrets_count=counts.get("secrets", 0)
+            )
+
+            self.push_screen(CodeEngineProjectDetailScreen(project))
             return
 
-        # For other resource types, show details modal
+        # For other resource types, show instance details modal
         self.push_screen(DetailScreen(selected))
 
         # Debug feedback
         status_bar = self.query_one("#status_bar", StatusBar)
         status_bar.set_message(f"Showing details for {selected.name}", "info")
+
+    def action_select_project(self) -> None:
+        """Select Code Engine project and load its resources (Enter key)"""
+        instance_table = self.query_one("#instance_table", InstanceTable)
+        selected = instance_table.get_selected_instance()
+
+        if not selected:
+            return
+
+        # Only applicable for Code Engine projects
+        if self.current_resource_type == ResourceType.CODE_ENGINE and self.selected_project is None:
+            # Set selected project
+            self.selected_project = selected
+
+            # Load project resources directly (skip details modal)
+            self.load_project_resources(selected.id)
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_message(f"Loading resources for project '{selected.name}'...", "info")
+
+    def on_code_engine_project_detail_screen_view_resources(
+        self, message: CodeEngineProjectDetailScreen.ViewResources
+    ) -> None:
+        """Handle ViewResources message from project details modal"""
+        # Find the project in instances list
+        for instance in self.instances:
+            if instance.id == message.project_id:
+                self.selected_project = instance
+                self.load_project_resources(message.project_id)
+                status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_message(f"Loading resources for project '{instance.name}'...", "info")
+                break
+
+    def action_back_to_projects(self) -> None:
+        """Go back from Code Engine project resources view to project list"""
+        # Only applicable when viewing Code Engine project resources
+        if self.current_resource_type != ResourceType.CODE_ENGINE or self.selected_project is None:
+            return
+
+        # Clear selected project and resources
+        self.selected_project = None
+        self.project_apps = []
+        self.project_jobs = []
+        self.project_builds = []
+        self.project_secrets = []
+        self.project_resources_view = "apps"
+
+        # Reload project list
+        self.load_instances()
+
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message("Returned to project list", "info")
+
+    def action_switch_ce_view(self, view: str) -> None:
+        """Switch Code Engine project resources view (apps/jobs/builds/secrets)"""
+        # Only applicable when viewing Code Engine project resources
+        if self.current_resource_type != ResourceType.CODE_ENGINE or self.selected_project is None:
+            return
+
+        # Validate view type
+        if view not in ("apps", "jobs", "builds", "secrets"):
+            return
+
+        # Update view type
+        self.project_resources_view = view
+
+        # Update the display
+        self._update_project_resources_display()
+
+        # Update status bar with view type and counts
+        counts = {
+            "apps": len(self.project_apps),
+            "jobs": len(self.project_jobs),
+            "builds": len(self.project_builds),
+            "secrets": len(self.project_secrets),
+        }
+
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message(
+            f"Viewing {view}: {counts[view]} items (Press 1:Apps 2:Jobs 3:Builds 4:Secrets)",
+            "info"
+        )
 
     def action_start_instance(self) -> None:
         """Start selected instance"""

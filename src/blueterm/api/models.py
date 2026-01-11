@@ -196,3 +196,21 @@ class CodeEngineBuild:
 
     def __repr__(self) -> str:
         return f"CodeEngineBuild(name='{self.name}', id='{self.id[:8]}...', status='{self.status}')"
+
+
+@dataclass
+class CodeEngineSecret:
+    """IBM Cloud Code Engine Secret"""
+    id: str
+    name: str
+    project_id: str
+    format: str  # generic, ssh_auth, basic_auth, tls, service_access, registry
+    created_at: str
+    updated_at: Optional[str] = None
+    entity_tag: Optional[str] = None
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return f"CodeEngineSecret(name='{self.name}', id='{self.id[:8]}...', format='{self.format}')"

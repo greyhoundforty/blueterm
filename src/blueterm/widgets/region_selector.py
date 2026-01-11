@@ -161,14 +161,18 @@ class RegionSelector(Widget):
 
                 region = self.regions[idx]
 
-                # Format: <0> region-name
+                # Format: <0> region-name (only show number for first 10 regions)
                 num_style = "bold cyan" if idx == self._selected_index else "dim"
                 name_style = "bold green" if idx == self._selected_index else "white"
 
                 part = Text()
-                # Use double-digit format (00, 01, 02, ...)
-                part.append(f"<{idx:02d}>", style=num_style)
-                part.append(" ")
+                # Only show number prefix for regions 0-9 (accessible via number keys)
+                if idx < 10:
+                    part.append(f"<{idx}>", style=num_style)
+                    part.append(" ")
+                else:
+                    # No number prefix for regions beyond 9 (use h/l navigation)
+                    part.append("    ")  # Spacing to align with numbered regions
                 part.append(region.name, style=name_style)
                 row_parts.append(part)
 

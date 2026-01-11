@@ -100,11 +100,12 @@ blueterm
 - `k` or `↑` - Move up in resource list
 - `h` or `←` - Previous region (cycle)
 - `l` or `→` - Next region (cycle)
-- `0-9` - Jump to region by number (quick access)
+- `0-9` - Jump to region by number (or switch Code Engine view when in project)
+- `Esc` - Back to project list (when viewing Code Engine project resources)
 
 #### Resource Actions
-- `d` - View resource details (modal)
-- `Enter` - Select Code Engine project (shows apps, jobs, builds)
+- `d` - View resource details (modal for VPC/IKS/ROKS) or project details (Code Engine)
+- `Enter` - Quick load resources (Code Engine projects only)
 - `s` - Start selected instance
 - `S` (Shift+S) - Stop selected instance
 - `b` - Reboot selected instance
@@ -139,7 +140,24 @@ When viewing Code Engine projects, the table displays:
 - **Builds** - Number of builds
 - **Secrets** - Number of secrets
 
-Press `Enter` or `d` on a project to view its resources (apps, jobs, builds).
+### Working with Code Engine Projects
+
+1. **View project details**: Press `d` to see detailed project information in a modal
+   - Shows project ID, region, resource group, creation date, CRN
+   - Displays resource counts (apps, jobs, builds, secrets)
+   - From the modal, press `Enter` or click "View Resources" to load resources
+
+2. **Quick access to resources**: Press `Enter` to directly load project resources (skip details)
+
+3. **Switch resource views**: Once viewing project resources, use number keys:
+   - `1` - View applications
+   - `2` - View jobs
+   - `3` - View builds
+   - `4` - View secrets
+
+4. **Go back**: Press `Esc` to return to the project list
+
+The status bar will show the current view and item counts (e.g., "Viewing apps: 5 items").
 
 ## Documentation
 
