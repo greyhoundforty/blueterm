@@ -8,24 +8,45 @@ from .app import BluetermApp
 from .api.exceptions import ConfigurationError, AuthenticationError
 
 
-def setup_logging():
-    """Configure icecream to log to a file"""
+def setup_logging(debug: bool = False):
+    """
+    Configure icecream to log ONLY to files (not to console/TUI)
+    
+    Args:
+        debug: If True, enable verbose debug logging
+    """
     log_dir = Path.home() / ".blueterm"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "blueterm.log"
+    debug_log_file = log_dir / "debug.log" if debug else None
     
-    # Also output to stderr for immediate feedback and append to file
-    def dual_output(s):
-        print(s, file=sys.stderr)
+    # File-only output function (no console output)
+    def file_only_output(s):
         try:
+            # Always write to main log file
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(s + "\n")
+            
+            # Also write to debug log if debug mode
+            if debug and debug_log_file:
+                with open(debug_log_file, "a", encoding="utf-8") as f:
+                    f.write(s + "\n")
         except Exception as e:
+            # Only print errors to stderr if we can't write logs
             print(f"Warning: Failed to write to log file: {e}", file=sys.stderr)
     
-    ic.configureOutput(outputFunction=dual_output, includeContext=True)
+    # Configure with context for better debugging
+    ic.configureOutput(
+        outputFunction=file_only_output,
+        includeContext=debug,  # Only include context in debug mode
+        argToStringFunction=lambda x: str(x)[:200] if not debug else str(x)  # Truncate in non-debug
+    )
     
-    ic(f"Logging initialized. Log file: {log_file}")
+    # Write initial log message (to file only)
+    ic(f"Logging initialized. Log file: {log_file}, Debug: {debug}")
+    if debug:
+        ic(f"Debug log file: {debug_log_file}")
+    
     return log_file
 
 
@@ -35,10 +56,14 @@ def main():
 
     Launches the Textual TUI application for managing IBM Cloud VPC instances.
     """
-    log_file = setup_logging()
+    # Check for debug mode
+    debug_str = os.environ.get("BLUETERM_DEBUG", "false").lower()
+    debug = debug_str in ("1", "true", "yes", "on")
+    
+    log_file = setup_logging(debug=debug)
     
     try:
-        ic("Starting Blueterm application")
+        ic("Starting Blueterm application", f"Debug mode: {debug}")
         app = BluetermApp()
         app.run()
     except (ConfigurationError, AuthenticationError) as e:

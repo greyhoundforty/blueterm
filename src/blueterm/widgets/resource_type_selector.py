@@ -49,6 +49,7 @@ class ResourceTypeSelector(Widget):
         super().__init__(**kwargs)
         self._selected_index: int = 0
         self._resource_types = list(ResourceType)
+        self._visible: bool = True
 
     def compose(self) -> ComposeResult:
         """Compose vertical sidebar layout"""
@@ -72,16 +73,16 @@ class ResourceTypeSelector(Widget):
         for idx, resource_type in enumerate(self._resource_types):
             is_selected = (idx == self._selected_index)
 
-            # Get shortcut key
+            # Get shortcut key (numbers: 1, 2, 3, 4)
             shortcuts = {
-                ResourceType.VPC: "v",
-                ResourceType.IKS: "i",
-                ResourceType.ROKS: "r",
-                ResourceType.CODE_ENGINE: "c",
+                ResourceType.VPC: "1",
+                ResourceType.IKS: "2",
+                ResourceType.ROKS: "3",
+                ResourceType.CODE_ENGINE: "4",
             }
             shortcut = shortcuts.get(resource_type, "")
 
-            # Format: [v] VPC ◀ (selected) or [v] VPC (not selected)
+            # Format: [1] VPC ◀ (selected) or [1] VPC (not selected)
             if is_selected:
                 resource_text.append(f"[{shortcut}] ", style="bold cyan")
                 resource_text.append(resource_type.value, style="bold green on #2ecc71")
@@ -100,11 +101,17 @@ class ResourceTypeSelector(Widget):
         Select resource type by keyboard shortcut
 
         Args:
-            key: Keyboard shortcut ('v', 'i', 'r', 'c')
+            key: Keyboard shortcut ('1', '2', '3', '4')
         """
         key_map = {
+            "1": ResourceType.VPC,
+            "2": ResourceType.IKS,
+            "3": ResourceType.ROKS,
+            "4": ResourceType.CODE_ENGINE,
+            # Legacy letter support (for backward compatibility)
             "v": ResourceType.VPC,
             "i": ResourceType.IKS,
+            "o": ResourceType.ROKS,
             "r": ResourceType.ROKS,
             "c": ResourceType.CODE_ENGINE,
         }
@@ -139,3 +146,18 @@ class ResourceTypeSelector(Widget):
     def watch_selected_type(self, old_type: ResourceType, new_type: ResourceType) -> None:
         """React to selected type changes (Textual reactive property)"""
         self._update_display()
+    
+    def toggle_visibility(self) -> None:
+        """Toggle sidebar visibility"""
+        self._visible = not self._visible
+        if self._visible:
+            self.display = True
+            self.remove_class("hidden")
+        else:
+            self.display = False
+            self.add_class("hidden")
+    
+    @property
+    def visible(self) -> bool:
+        """Check if sidebar is visible"""
+        return self._visible

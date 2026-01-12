@@ -12,6 +12,7 @@ from textual.widgets import Header, Footer
 from textual.worker import Worker, WorkerState
 from textual.theme import Theme
 from icecream import ic
+import logging
 
 # Get the package directory for CSS path
 # Handle both installed package and source development
@@ -56,15 +57,18 @@ class BluetermApp(App):
         Resource Types:
             v: Switch to VPC
             i: Switch to IKS
-            r: Switch to ROKS
+            o: Switch to ROKS
             c: Switch to Code Engine
 
-        Instance Navigation:
-            j/k or ↑/↓: Navigate instances
-            h/l or ←/→: Switch regions
+        Top Navigation:
+            r: Focus regions selector
+            g: Focus resource group selector
+            h/l or ←/→: Navigate within focused section
+            0-9: Jump to region by number (when regions focused)
 
-        Search/Filter:
-            /: Search/filter instances
+        Instance Navigation:
+            j/k or ↑/↓: Navigate instances/resources
+            h/l or ←/→: Switch regions (when not focused)
 
         Actions:
             d: View instance details
@@ -76,6 +80,7 @@ class BluetermApp(App):
         General:
             q: Quit application
             ?: Show help
+            Ctrl+b: Toggle sidebar
     """
 
     CSS_PATH = str(CSS_SOURCE_PATH)
@@ -105,11 +110,11 @@ class BluetermApp(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("question_mark", "help", "Help"),
         Binding("slash", "search", "Search"),
-        # Resource type switching
-        Binding("v", "switch_resource_type('v')", "VPC", show=True),
-        Binding("i", "switch_resource_type('i')", "IKS", show=True),
-        Binding("r", "switch_resource_type('r')", "ROKS", show=True),
-        Binding("c", "switch_resource_type('c')", "Code Engine", show=True),
+        # Resource type switching (numbers)
+        Binding("1", "switch_resource_type('1')", "VPC", show=True),
+        Binding("2", "switch_resource_type('2')", "IKS", show=True),
+        Binding("3", "switch_resource_type('3')", "ROKS", show=True),
+        Binding("4", "switch_resource_type('4')", "Code Engine", show=True),
         # Instance actions
         Binding("b", "reboot_instance", "Reboot"),
         Binding("s", "start_instance", "Start"),
@@ -121,12 +126,9 @@ class BluetermApp(App):
         Binding("l", "region_next", "Next Region", show=False),
         Binding("left", "region_previous", show=False),
         Binding("right", "region_next", show=False),
-        # Number keys for quick region switching
+        # Number keys for quick region switching (0, 5-9 when regions focused)
+        # Note: 1-4 are used for resource type switching
         Binding("0", "region_number(0)", show=False),
-        Binding("1", "region_number(1)", show=False),
-        Binding("2", "region_number(2)", show=False),
-        Binding("3", "region_number(3)", show=False),
-        Binding("4", "region_number(4)", show=False),
         Binding("5", "region_number(5)", show=False),
         Binding("6", "region_number(6)", show=False),
         Binding("7", "region_number(7)", show=False),
@@ -136,6 +138,10 @@ class BluetermApp(App):
         Binding("a", "toggle_auto_refresh", "Auto-refresh"),
         # Code Engine navigation
         Binding("escape", "back_to_projects", "Back", show=False),
+        # Interactive navigation
+        Binding("r", "focus_region", "Focus Region", show=True),
+        Binding("g", "focus_resource_group", "Focus RG", show=True),
+        Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar", show=True),
     ]
 
     # Available color themes
@@ -161,6 +167,32 @@ class BluetermApp(App):
         try:
             self.config = Config.from_env()
             self.config.validate()
+            
+            # Setup debug logging if enabled (file only, no console output)
+            if self.config.debug:
+                debug_log_file = Path.home() / ".blueterm" / "debug.log"
+                logging.basicConfig(
+                    level=logging.DEBUG,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler(debug_log_file),
+                        # No StreamHandler - we don't want console output
+                    ],
+                    force=True  # Override any existing logging config
+                )
+                ic("Debug logging enabled (file only)")
+            else:
+                # Configure logging to only write to file, not console
+                log_file = Path.home() / ".blueterm" / "blueterm.log"
+                logging.basicConfig(
+                    level=logging.WARNING,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler(log_file),
+                        # No StreamHandler
+                    ],
+                    force=True
+                )
 
             # Initialize all API clients
             self.vpc_client = IBMCloudClient(self.config.api_key)
@@ -204,6 +236,9 @@ class BluetermApp(App):
         self.project_secrets: List[CodeEngineSecret] = []
         self.project_resources_view: str = "apps"  # "apps", "jobs", "builds", "secrets"
         self.project_counts: dict = {}  # Cache of project counts {project_id: {apps: N, jobs: N, ...}}
+        
+        # Interactive navigation state
+        self.focused_section: Optional[str] = None  # None, "region", "resource_group"
 
     def compose(self) -> ComposeResult:
         """Compose the main application layout with left sidebar"""
@@ -275,19 +310,28 @@ class BluetermApp(App):
                 self.current_resource_group = self.resource_groups[0]
                 ic(f"Selected resource group: {self.current_resource_group.name}")
 
-
                 # Set resource group on Code Engine client
                 self.code_engine_client.set_resource_group(self.current_resource_group.id)
 
-                # Update InfoBar with resource group (must be done in main thread)
-                def update_info_bar():
+                # Update region selector and InfoBar (must be done in main thread)
+                def update_ui():
+                    try:
+                        region_selector = self.query_one("#region_selector", RegionSelector)
+                        ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
+                        region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+                        ic(f"Resource groups set on region selector")
+                    except Exception as e:
+                        import traceback
+                        ic(f"ERROR: Failed to update region selector with resource groups: {e}")
+                        ic(f"Traceback: {traceback.format_exc()}")
+                    
                     try:
                         info_bar = self.query_one("#info_bar", InfoBar)
                         info_bar.set_resource_group(self.current_resource_group)
                     except Exception as e:
                         ic(f"Warning: Failed to update info bar with resource group: {e}")
 
-                self.call_from_thread(update_info_bar)
+                self.call_from_thread(update_ui)
             else:
                 ic("No resource groups returned from API")
 
@@ -332,8 +376,19 @@ class BluetermApp(App):
                     self.code_engine_client.set_region(default.name)
 
                 region_selector = self.query_one("#region_selector", RegionSelector)
+                ic(f"Region selector found, setting {len(self.regions)} regions")
                 region_selector.set_regions(self.regions, default)
                 ic(f"Set {len(self.regions)} regions on region selector")
+                ic(f"Regions: {[r.name for r in self.regions]}")
+                ic(f"Region selector has {len(region_selector.regions)} regions after set_regions")
+                
+                # Also set resource groups if available
+                if self.resource_groups:
+                    ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
+                    region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
+                    ic(f"Region selector has {len(region_selector.resource_groups)} resource groups after set_resource_groups")
+                else:
+                    ic("No resource groups available to set")
                 
 
                 # Update info bar with region and resource group
@@ -736,8 +791,38 @@ class BluetermApp(App):
         self.load_regions()
 
     def on_region_selector_resource_group_selection_requested(self, message) -> None:
-        """Handle resource group selection request from region selector - open modal"""
-        self._open_resource_group_selector()
+        """Handle resource group selection request from region selector"""
+        # If resource group is focused (keyboard navigation), directly change it
+        if self.focused_section == "resource_group":
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            new_rg = region_selector.selected_resource_group
+            if new_rg and new_rg != self.current_resource_group:
+                # Update app state
+                self.current_resource_group = new_rg
+                # Update Code Engine client
+                self.code_engine_client.set_resource_group(new_rg.id)
+                # Update InfoBar
+                try:
+                    info_bar = self.query_one("#info_bar", InfoBar)
+                    info_bar.set_resource_group(new_rg)
+                except:
+                    pass
+                # Show notification
+                status_bar = self.query_one("#status_bar", StatusBar)
+                status_bar.set_message(f"Resource Group: {new_rg.name}", "info")
+                # Reload instances if viewing Code Engine
+                if self.current_resource_type == ResourceType.CODE_ENGINE:
+                    self.load_instances()
+                    # Reset project selection
+                    self.selected_project = None
+                    self.project_apps = []
+                    self.project_jobs = []
+                    self.project_builds = []
+                    self.project_secrets = []
+                    self.project_counts = {}
+        else:
+            # Otherwise, open modal for selection
+            self._open_resource_group_selector()
 
     def on_region_selector_theme_cycle_requested(self, message) -> None:
         """Handle theme cycle request from region selector - cycle theme"""
@@ -795,37 +880,104 @@ class BluetermApp(App):
         )
 
     def action_region_next(self) -> None:
-        """Select next region (l or → key)"""
-        region_selector = self.query_one("#region_selector", RegionSelector)
-        region_selector.select_next()
+        """Select next region (l or → key) - context aware"""
+        if self.focused_section == "resource_group":
+            # Navigate resource groups
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.select_next_resource_group()
+        elif self.focused_section == "region" or self.focused_section is None:
+            # Navigate regions (default behavior)
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.select_next()
+            # Auto-focus region section if not already focused
+            if self.focused_section is None:
+                self.focused_section = "region"
+                region_selector.set_focused(True)
 
     def action_region_previous(self) -> None:
-        """Select previous region (h or ← key)"""
-        region_selector = self.query_one("#region_selector", RegionSelector)
-        region_selector.select_previous()
+        """Select previous region (h or ← key) - context aware"""
+        if self.focused_section == "resource_group":
+            # Navigate resource groups
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.select_previous_resource_group()
+        elif self.focused_section == "region" or self.focused_section is None:
+            # Navigate regions (default behavior)
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.select_previous()
+            # Auto-focus region section if not already focused
+            if self.focused_section is None:
+                self.focused_section = "region"
+                region_selector.set_focused(True)
 
     def action_region_number(self, number: int) -> None:
-        """Select region by number key (0-9) or switch Code Engine view (1-4 when in project view)"""
+        """Handle number key presses - context aware"""
         # If viewing Code Engine project resources, use 1-4 to switch views
         if self.current_resource_type == ResourceType.CODE_ENGINE and self.selected_project is not None:
-            if number == 1:
-                self.action_switch_ce_view("apps")
-            elif number == 2:
-                self.action_switch_ce_view("jobs")
-            elif number == 3:
-                self.action_switch_ce_view("builds")
-            elif number == 4:
-                self.action_switch_ce_view("secrets")
-            return
-
-        # Otherwise, select region by number
-        region_selector = self.query_one("#region_selector", RegionSelector)
-        region_selector.select_by_number(number)
+            view_map = {1: "apps", 2: "jobs", 3: "builds", 4: "secrets"}
+            if number in view_map:
+                self.action_switch_ce_view(view_map[number])
+                return
+        
+        # If regions are focused, use 0 and 5-9 for region selection
+        if self.focused_section == "region":
+            if number == 0 or (number >= 5 and number <= 9):
+                region_selector = self.query_one("#region_selector", RegionSelector)
+                region_selector.select_by_number(number)
+                return
+        
+        # If 1-4 and regions not focused, these are handled by resource type switching
+        # (The bindings will route 1-4 to switch_resource_type)
+        # For 0 and 5-9 when not focused, select region
+        if number == 0 or (number >= 5 and number <= 9):
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            region_selector.select_by_number(number)
+            # Auto-focus region section
+            if self.focused_section != "region":
+                self.focused_section = "region"
+                region_selector.set_focused(True)
 
     def action_switch_resource_type(self, key: str) -> None:
-        """Switch resource type by keyboard shortcut (v/i/r/c)"""
+        """Switch resource type by keyboard shortcut (1/2/3/4) - context aware"""
+        # If viewing Code Engine project resources, use 1-4 for view switching instead
+        if self.current_resource_type == ResourceType.CODE_ENGINE and self.selected_project is not None:
+            view_map = {"1": "apps", "2": "jobs", "3": "builds", "4": "secrets"}
+            if key in view_map:
+                self.action_switch_ce_view(view_map[key])
+                return
+        
+        # Otherwise, switch resource type
         resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
         resource_type_selector.select_by_key(key)
+    
+    def action_focus_region(self) -> None:
+        """Focus region selector for keyboard navigation (r key)"""
+        region_selector = self.query_one("#region_selector", RegionSelector)
+        self.focused_section = "region"
+        region_selector.set_focused(True)
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message("Region selector focused - use ←/→ to navigate, 0-9 to jump", "info")
+    
+    def action_focus_resource_group(self) -> None:
+        """Focus resource group selector for keyboard navigation (g key)"""
+        if not self.resource_groups:
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_message("No resource groups available", "warning")
+            return
+        region_selector = self.query_one("#region_selector", RegionSelector)
+        self.focused_section = "resource_group"
+        region_selector.set_resource_group_focused(True)
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message("Resource group selector focused - use ←/→ to navigate", "info")
+    
+    def action_toggle_sidebar(self) -> None:
+        """Toggle resource type selector sidebar visibility (Ctrl+b)"""
+        resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
+        resource_type_selector.toggle_visibility()
+        status_bar = self.query_one("#status_bar", StatusBar)
+        if resource_type_selector.visible:
+            status_bar.set_message("Resource type selector shown", "info")
+        else:
+            status_bar.set_message("Resource type selector hidden", "info")
 
     def action_refresh(self) -> None:
         """Refresh current view"""
@@ -963,8 +1115,20 @@ class BluetermApp(App):
                 break
 
     def action_back_to_projects(self) -> None:
-        """Go back from Code Engine project resources view to project list"""
-        # Only applicable when viewing Code Engine project resources
+        """Go back to Code Engine project list or unfocus sections (Esc key)"""
+        # If a section is focused, unfocus it
+        if self.focused_section:
+            region_selector = self.query_one("#region_selector", RegionSelector)
+            if self.focused_section == "region":
+                region_selector.set_focused(False)
+            elif self.focused_section == "resource_group":
+                region_selector.set_resource_group_focused(False)
+            self.focused_section = None
+            status_bar = self.query_one("#status_bar", StatusBar)
+            status_bar.set_message("Navigation unfocused", "info")
+            return
+        
+        # Otherwise, go back from Code Engine project resources view to project list
         if self.current_resource_type != ResourceType.CODE_ENGINE or self.selected_project is None:
             return
 
@@ -1109,15 +1273,21 @@ Blueterm - IBM Cloud Resource Manager
 
 Keyboard Shortcuts:
   Resource Types:
-    v              Switch to VPC
-    i              Switch to IKS (IBM Kubernetes Service)
-    r              Switch to ROKS (Red Hat OpenShift)
-    c              Switch to Code Engine
+    1              Switch to VPC
+    2              Switch to IKS (IBM Kubernetes Service)
+    3              Switch to ROKS (Red Hat OpenShift)
+    4              Switch to Code Engine
 
-  Navigation:
+  Top Navigation:
+    r              Focus regions selector
+    g              Focus resource group selector
+    h/l or ←/→     Navigate within focused section
+    0, 5-9         Jump to region by number (when regions focused)
+
+  Main Navigation:
     j/k or ↑/↓     Navigate instances/resources
-    h/l or ←/→     Switch regions (cycle)
-    0-9            Jump to region by number
+    h/l or ←/→     Switch regions (when not focused)
+    0-9            Jump to region by number (when not focused)
 
   Actions:
     d              View instance/resource details (modal)
@@ -1125,6 +1295,10 @@ Keyboard Shortcuts:
     S (Shift+S)    Stop selected instance
     b              Reboot selected instance
     R (Shift+R)    Refresh current view
+
+  Code Engine:
+    1-4            Switch view (Apps/Jobs/Builds/Secrets)
+    Esc            Back to project list or unfocus section
 
   Detail Window:
     Esc, x, or q   Close detail window
@@ -1136,6 +1310,7 @@ Keyboard Shortcuts:
   Appearance:
     t              Cycle through color themes
     a              Toggle auto-refresh
+    Ctrl+b         Toggle sidebar visibility
 
   General:
     ?              Show this help

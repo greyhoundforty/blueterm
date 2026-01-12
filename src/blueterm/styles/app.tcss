@@ -15,6 +15,10 @@
     border-right: solid $primary;
 }
 
+#resource_type_selector.hidden {
+    display: none;
+}
+
 #resource_type_panel {
     height: 100%;
     padding: 1;
@@ -40,13 +44,85 @@
     width: 1fr;
 }
 
-/* Region selector - TAWS style (no dock, part of main flow) */
+/* Region selector - btop-style with distinct sections */
 #region_selector {
     height: auto;
     background: $surface;
     border: solid $primary;
     padding: 0;
     margin-bottom: 0;
+}
+
+/* Navigation sections - horizontal layout like btop, compact */
+#nav_sections {
+    layout: horizontal;
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    border-top: solid $primary-darken-1;
+}
+
+/* Regions section - compact, spans horizontally */
+#regions_section {
+    width: 2fr;
+    height: auto;
+    min-height: 3;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+#regions_section.focused {
+    border: heavy $accent;
+    background: $panel;
+}
+
+#regions_label {
+    text-style: bold;
+    height: 1;
+    border-bottom: solid $primary-darken-1;
+    padding: 0;
+    margin-bottom: 0;
+    content-align: center middle;
+}
+
+#regions_list {
+    height: auto;
+    min-height: 1;
+    padding: 0;
+    content-align: left middle;
+    overflow: hidden;
+}
+
+/* Resource group section - compact vertical list */
+#resource_group_section {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    border: solid $primary-darken-1;
+    padding: 0 1;
+}
+
+#resource_group_section.focused {
+    border: heavy $warning;
+    background: $panel;
+}
+
+#rg_section_label {
+    text-style: bold;
+    height: 1;
+    border-bottom: solid $primary-darken-1;
+    padding: 0;
+    margin-bottom: 0;
+    content-align: center middle;
+}
+
+#resource_group_list {
+    height: auto;
+    min-height: 1;
+    padding: 0;
+    content-align: left top;
+    overflow: hidden;
 }
 
 #region_panel {
@@ -59,68 +135,23 @@
     height: 1;
     background: $surface;
     color: $text-muted;
+    border-bottom: solid $primary-darken-1;
+    padding: 0 1;
 }
 
-#profile_label, #region_label, #resource_label, #instances_label {
+#resource_label, #instances_label {
     color: $text-muted;
     width: auto;
 }
 
-#profile_value, #current_region, #resource_value, #instances_count {
+#resource_value, #instances_count {
     color: $text;
     text-style: bold;
     width: auto;
-}
-
-#current_region {
-    color: $success;
 }
 
 #instances_count {
     color: $accent;
-}
-
-#region_list {
-    height: auto;
-    background: $surface;
-    color: $text;
-    padding: 0;
-}
-
-/* Inline Resource Group in Region Info Bar */
-#rg_label_inline {
-    color: $text-muted;
-    width: auto;
-}
-
-#current_resource_group_inline {
-    color: $success;
-    text-style: bold;
-    width: auto;
-}
-
-#change_rg_button_inline {
-    margin-left: 1;
-    min-width: 8;
-    height: 1;
-}
-
-/* Inline Theme Selector in Region Info Bar */
-#theme_label_inline {
-    color: $text-muted;
-    width: auto;
-}
-
-#current_theme_inline {
-    color: $accent;
-    text-style: bold;
-    width: auto;
-}
-
-#change_theme_button_inline {
-    margin-left: 1;
-    min-width: 8;
-    height: 1;
 }
 
 
