@@ -9,6 +9,83 @@ BlueTerm is a Python-based Terminal User Interface (TUI) application for managin
 
 ## Implementation Summary
 
+### Session: 3-Column Top Navigation Redesign (2026-01-14 - Session 7)
+
+**Duration**: ~45 minutes
+**Outcome**: Replaced left sidebar + separate region selector with unified 3-column top navigation bar
+
+#### Major Changes
+
+1. **New TopNavigation Widget**
+   - ✅ Created `src/blueterm/widgets/top_navigation.py` (~350 lines)
+   - ✅ 3-column horizontal layout:
+     - Column 1: Resource Type Selector (VPC/IKS/ROKS/Code Engine) with [1-4] shortcuts
+     - Column 2: Region Selector (2 rows for better space usage)
+     - Column 3: Resource Group Selector (vertical scrollable list)
+   - ✅ Focus state indicators with visual highlighting
+   - ✅ Keyboard navigation preserved (r/g to focus, h/l or arrows to navigate)
+
+2. **Layout Simplification**
+   - ✅ Removed left sidebar (`ResourceTypeSelector` widget)
+   - ✅ Removed standalone `RegionSelector` widget from main layout
+   - ✅ Consolidated all navigation into single top bar
+   - ✅ Main container now takes full width
+
+3. **Updated Event Handlers**
+   - ✅ Changed all `on_region_selector_*` handlers to `on_top_navigation_*`
+   - ✅ Changed `on_resource_type_selector_*` handlers to `on_top_navigation_*`
+   - ✅ Updated all widget queries from `#region_selector` and `#resource_type_selector` to `#top_navigation`
+
+4. **CSS Updates**
+   - ✅ Added styles for `#top_navigation`, `#top_nav`, `#resource_type_column`, `#region_column`, `#resource_group_column`
+   - ✅ Removed old sidebar and region selector CSS rules
+   - ✅ Column widths: Resource Type (22), Regions (2fr), Resource Groups (1fr, min 20)
+
+#### Files Modified
+
+- `src/blueterm/widgets/top_navigation.py` - **NEW**: 3-column navigation widget
+- `src/blueterm/widgets/__init__.py` - Added TopNavigation export
+- `src/blueterm/app.py` - Updated layout, imports, and event handlers
+- `src/blueterm/styles/app.tcss` - New top navigation CSS, removed old sidebar CSS
+
+#### New Layout Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Header                                                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│ InfoBar                                                                 │
+├────────────────────┬─────────────────────────────┬──────────────────────┤
+│ [1-4] Resource     │ [R]egion                    │ [G]roup              │
+│ [1]VPC [2]IKS      │  us-south │ us-east │ eu-gb │ ● Default            │
+│ [3]ROKS [4]CE      │  jp-tok │ au-syd │ br-sao  │   tech-sales-rg      │
+├────────────────────┴─────────────────────────────┴──────────────────────┤
+│ Instance Table (full width)                                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│ StatusBar                                                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ Footer                                                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Keyboard Shortcuts (unchanged)
+
+- **1-4**: Switch resource type (VPC/IKS/ROKS/Code Engine)
+- **r**: Focus region selector
+- **g**: Focus resource group selector
+- **h/l or ←/→**: Navigate within focused section
+- **0, 5-9**: Jump to region by number (when regions focused)
+- **Esc**: Unfocus navigation section
+
+#### Testing Notes
+
+- ✅ App imports successfully
+- ✅ App starts and renders 3-column layout
+- ✅ No TCSS syntax errors
+- ⏸️ Full interaction testing pending (requires IBM Cloud API key)
+
+---
+
 ### Session: IBM Carbon Theme & UI Improvements (2026-01-10 - Session 6)
 
 **Duration**: ~2 hours

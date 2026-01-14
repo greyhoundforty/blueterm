@@ -35,8 +35,8 @@ from .api.models import (
     CodeEngineProject, CodeEngineApp, CodeEngineJob, CodeEngineBuild, CodeEngineSecret
 )
 from .api.exceptions import AuthenticationError, ConfigurationError
-from .widgets.region_selector import RegionSelector
-from .widgets.resource_type_selector import ResourceTypeSelector, ResourceType
+from .widgets.top_navigation import TopNavigation
+from .widgets.resource_type_selector import ResourceType
 from .widgets.info_bar import InfoBar
 from .widgets.instance_table import InstanceTable, ResourceType as TableResourceType
 from .widgets.status_bar import StatusBar
@@ -84,7 +84,7 @@ class BluetermApp(App):
     """
 
     CSS_PATH = str(CSS_SOURCE_PATH)
-    TITLE = "Blueterm - IBM Cloud VPC Manager"
+    TITLE = "Blueterm - IBM Cloud Compute Manager"
 
     # IBM Carbon Design System Theme
     # Based on Carbon dark theme (Gray 100 background)
@@ -241,19 +241,15 @@ class BluetermApp(App):
         self.focused_section: Optional[str] = None  # None, "region", "resource_group"
 
     def compose(self) -> ComposeResult:
-        """Compose the main application layout with left sidebar"""
+        """Compose the main application layout with top 3-column navigation"""
         yield Header()
         yield InfoBar(id="info_bar")
-        with Horizontal(id="app_layout"):
-            # Left sidebar for resource type selection
-            yield ResourceTypeSelector(id="resource_type_selector")
-
-            # Main content area (right side)
-            with Vertical(id="main_container"):
-                yield RegionSelector(id="region_selector")
-                yield InstanceTable(id="instance_table")
-                yield SearchInput(id="search_input")
-
+        # Top navigation bar with 3 columns: Resource Type | Regions | Resource Groups
+        yield TopNavigation(id="top_navigation")
+        # Main content area
+        with Vertical(id="main_container"):
+            yield InstanceTable(id="instance_table")
+            yield SearchInput(id="search_input")
         yield StatusBar(id="status_bar")
         yield Footer()
 
@@ -264,22 +260,13 @@ class BluetermApp(App):
         # Set theme from preferences
         self.theme = self.preferences.theme
 
-        # Update theme display in region selector
-        try:
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.set_theme(self.preferences.theme)
-        except:
-            pass
-
         # Start time update timer (update every second)
         self.set_interval(1.0, self._update_time_display)
 
         # Load regions first (needed for UI display)
         self.load_regions()
-        
+
         # Load resource groups after regions (needed for Code Engine)
-        # Note: load_resource_groups is a worker, so it runs asynchronously
-        # We'll set resource groups on region selector when they load
         self.load_resource_groups()
 
         # Start auto-refresh if enabled
@@ -313,18 +300,18 @@ class BluetermApp(App):
                 # Set resource group on Code Engine client
                 self.code_engine_client.set_resource_group(self.current_resource_group.id)
 
-                # Update region selector and InfoBar (must be done in main thread)
+                # Update top navigation and InfoBar (must be done in main thread)
                 def update_ui():
                     try:
-                        region_selector = self.query_one("#region_selector", RegionSelector)
-                        ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
-                        region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
-                        ic(f"Resource groups set on region selector")
+                        top_nav = self.query_one("#top_navigation", TopNavigation)
+                        ic(f"Setting {len(self.resource_groups)} resource groups on top navigation")
+                        top_nav.set_resource_groups(self.resource_groups, self.current_resource_group)
+                        ic(f"Resource groups set on top navigation")
                     except Exception as e:
                         import traceback
-                        ic(f"ERROR: Failed to update region selector with resource groups: {e}")
+                        ic(f"ERROR: Failed to update top navigation with resource groups: {e}")
                         ic(f"Traceback: {traceback.format_exc()}")
-                    
+
                     try:
                         info_bar = self.query_one("#info_bar", InfoBar)
                         info_bar.set_resource_group(self.current_resource_group)
@@ -375,21 +362,18 @@ class BluetermApp(App):
                 if self.current_resource_type == ResourceType.CODE_ENGINE:
                     self.code_engine_client.set_region(default.name)
 
-                region_selector = self.query_one("#region_selector", RegionSelector)
-                ic(f"Region selector found, setting {len(self.regions)} regions")
-                region_selector.set_regions(self.regions, default)
-                ic(f"Set {len(self.regions)} regions on region selector")
+                top_nav = self.query_one("#top_navigation", TopNavigation)
+                ic(f"Top navigation found, setting {len(self.regions)} regions")
+                top_nav.set_regions(self.regions, default)
+                ic(f"Set {len(self.regions)} regions on top navigation")
                 ic(f"Regions: {[r.name for r in self.regions]}")
-                ic(f"Region selector has {len(region_selector.regions)} regions after set_regions")
-                
+
                 # Also set resource groups if available
                 if self.resource_groups:
-                    ic(f"Setting {len(self.resource_groups)} resource groups on region selector")
-                    region_selector.set_resource_groups(self.resource_groups, self.current_resource_group)
-                    ic(f"Region selector has {len(region_selector.resource_groups)} resource groups after set_resource_groups")
+                    ic(f"Setting {len(self.resource_groups)} resource groups on top navigation")
+                    top_nav.set_resource_groups(self.resource_groups, self.current_resource_group)
                 else:
                     ic("No resource groups available to set")
-                
 
                 # Update info bar with region and resource group
                 try:
@@ -488,9 +472,9 @@ class BluetermApp(App):
                 stopped=stopped
             )
 
-            # Update region selector with instance counts
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.update_instance_counts(total, running, stopped)
+            # Update top navigation with instance counts
+            top_nav = self.query_one("#top_navigation", TopNavigation)
+            top_nav.update_instance_counts(total, running, stopped)
 
             status_bar.set_loading(False)
 
@@ -721,17 +705,17 @@ class BluetermApp(App):
             if query in inst.name.lower() or query in inst.status.value.lower()
         ]
 
-    def on_region_selector_region_changed(self, message) -> None:
-        """Handle region change event"""
+    def on_top_navigation_region_changed(self, message) -> None:
+        """Handle region change event from top navigation"""
         self.current_region = message.region
-        
+
         # Update InfoBar with new region
         try:
             info_bar = self.query_one("#info_bar", InfoBar)
             info_bar.set_region(message.region)
         except:
             pass
-        
+
         self.load_instances()
 
     def on_search_input_search_changed(self, message) -> None:
@@ -750,8 +734,8 @@ class BluetermApp(App):
         instance_table = self.query_one("#instance_table", InstanceTable)
         instance_table.update_instances(self.filtered_instances, None)
 
-    def on_resource_type_selector_resource_type_changed(self, message) -> None:
-        """Handle resource type change event"""
+    def on_top_navigation_resource_type_changed(self, message) -> None:
+        """Handle resource type change event from top navigation"""
         self.current_resource_type = message.resource_type
 
         # Switch to appropriate client
@@ -763,15 +747,15 @@ class BluetermApp(App):
         }
         self.client = client_map[message.resource_type]
 
-        # Update resource type display in region selector
+        # Update resource type display in top navigation
         resource_type_display_map = {
             ResourceType.VPC: "VPC Instances",
             ResourceType.IKS: "IKS Clusters",
             ResourceType.ROKS: "ROKS Clusters",
             ResourceType.CODE_ENGINE: "Code Engine Projects",
         }
-        region_selector = self.query_one("#region_selector", RegionSelector)
-        region_selector.set_resource_type_display(resource_type_display_map[message.resource_type])
+        top_nav = self.query_one("#top_navigation", TopNavigation)
+        top_nav.set_resource_type_display(resource_type_display_map[message.resource_type])
 
         # Reset Code Engine project selection when switching away
         if message.resource_type != ResourceType.CODE_ENGINE:
@@ -790,12 +774,12 @@ class BluetermApp(App):
         # Reload regions for new resource type
         self.load_regions()
 
-    def on_region_selector_resource_group_selection_requested(self, message) -> None:
-        """Handle resource group selection request from region selector"""
+    def on_top_navigation_resource_group_selection_requested(self, message) -> None:
+        """Handle resource group selection request from top navigation"""
         # If resource group is focused (keyboard navigation), directly change it
         if self.focused_section == "resource_group":
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            new_rg = region_selector.selected_resource_group
+            top_nav = self.query_one("#top_navigation", TopNavigation)
+            new_rg = top_nav.selected_resource_group
             if new_rg and new_rg != self.current_resource_group:
                 # Update app state
                 self.current_resource_group = new_rg
@@ -824,10 +808,6 @@ class BluetermApp(App):
             # Otherwise, open modal for selection
             self._open_resource_group_selector()
 
-    def on_region_selector_theme_cycle_requested(self, message) -> None:
-        """Handle theme cycle request from region selector - cycle theme"""
-        self.action_cycle_theme()
-
 
     def _open_resource_group_selector(self) -> None:
         """Open resource group selection modal"""
@@ -839,9 +819,9 @@ class BluetermApp(App):
         # Open resource group selection modal
         def handle_selection(selected_rg: Optional[ResourceGroup]) -> None:
             if selected_rg:
-                # Update region selector with new resource group (includes inline display)
-                region_selector = self.query_one("#region_selector", RegionSelector)
-                region_selector.set_resource_group(selected_rg)
+                # Update top navigation with new resource group
+                top_nav = self.query_one("#top_navigation", TopNavigation)
+                top_nav.set_resource_group(selected_rg)
 
                 # Update app state
                 self.current_resource_group = selected_rg
@@ -881,33 +861,31 @@ class BluetermApp(App):
 
     def action_region_next(self) -> None:
         """Select next region (l or → key) - context aware"""
+        top_nav = self.query_one("#top_navigation", TopNavigation)
         if self.focused_section == "resource_group":
             # Navigate resource groups
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.select_next_resource_group()
+            top_nav.select_next_resource_group()
         elif self.focused_section == "region" or self.focused_section is None:
             # Navigate regions (default behavior)
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.select_next()
+            top_nav.select_next_region()
             # Auto-focus region section if not already focused
             if self.focused_section is None:
                 self.focused_section = "region"
-                region_selector.set_focused(True)
+                top_nav.set_region_focused(True)
 
     def action_region_previous(self) -> None:
         """Select previous region (h or ← key) - context aware"""
+        top_nav = self.query_one("#top_navigation", TopNavigation)
         if self.focused_section == "resource_group":
             # Navigate resource groups
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.select_previous_resource_group()
+            top_nav.select_previous_resource_group()
         elif self.focused_section == "region" or self.focused_section is None:
             # Navigate regions (default behavior)
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.select_previous()
+            top_nav.select_previous_region()
             # Auto-focus region section if not already focused
             if self.focused_section is None:
                 self.focused_section = "region"
-                region_selector.set_focused(True)
+                top_nav.set_region_focused(True)
 
     def action_region_number(self, number: int) -> None:
         """Handle number key presses - context aware"""
@@ -917,24 +895,24 @@ class BluetermApp(App):
             if number in view_map:
                 self.action_switch_ce_view(view_map[number])
                 return
-        
+
+        top_nav = self.query_one("#top_navigation", TopNavigation)
+
         # If regions are focused, use 0 and 5-9 for region selection
         if self.focused_section == "region":
             if number == 0 or (number >= 5 and number <= 9):
-                region_selector = self.query_one("#region_selector", RegionSelector)
-                region_selector.select_by_number(number)
+                top_nav.select_region_by_number(number)
                 return
-        
+
         # If 1-4 and regions not focused, these are handled by resource type switching
         # (The bindings will route 1-4 to switch_resource_type)
         # For 0 and 5-9 when not focused, select region
         if number == 0 or (number >= 5 and number <= 9):
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.select_by_number(number)
+            top_nav.select_region_by_number(number)
             # Auto-focus region section
             if self.focused_section != "region":
                 self.focused_section = "region"
-                region_selector.set_focused(True)
+                top_nav.set_region_focused(True)
 
     def action_switch_resource_type(self, key: str) -> None:
         """Switch resource type by keyboard shortcut (1/2/3/4) - context aware"""
@@ -944,40 +922,35 @@ class BluetermApp(App):
             if key in view_map:
                 self.action_switch_ce_view(view_map[key])
                 return
-        
-        # Otherwise, switch resource type
-        resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
-        resource_type_selector.select_by_key(key)
+
+        # Otherwise, switch resource type via top navigation
+        top_nav = self.query_one("#top_navigation", TopNavigation)
+        top_nav.select_resource_type_by_key(key)
     
     def action_focus_region(self) -> None:
         """Focus region selector for keyboard navigation (r key)"""
-        region_selector = self.query_one("#region_selector", RegionSelector)
+        top_nav = self.query_one("#top_navigation", TopNavigation)
         self.focused_section = "region"
-        region_selector.set_focused(True)
+        top_nav.set_region_focused(True)
         status_bar = self.query_one("#status_bar", StatusBar)
         status_bar.set_message("Region selector focused - use ←/→ to navigate, 0-9 to jump", "info")
-    
+
     def action_focus_resource_group(self) -> None:
         """Focus resource group selector for keyboard navigation (g key)"""
         if not self.resource_groups:
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_message("No resource groups available", "warning")
             return
-        region_selector = self.query_one("#region_selector", RegionSelector)
+        top_nav = self.query_one("#top_navigation", TopNavigation)
         self.focused_section = "resource_group"
-        region_selector.set_resource_group_focused(True)
+        top_nav.set_resource_group_focused(True)
         status_bar = self.query_one("#status_bar", StatusBar)
         status_bar.set_message("Resource group selector focused - use ←/→ to navigate", "info")
-    
+
     def action_toggle_sidebar(self) -> None:
-        """Toggle resource type selector sidebar visibility (Ctrl+b)"""
-        resource_type_selector = self.query_one("#resource_type_selector", ResourceTypeSelector)
-        resource_type_selector.toggle_visibility()
+        """Toggle sidebar - no longer used, kept for compatibility"""
         status_bar = self.query_one("#status_bar", StatusBar)
-        if resource_type_selector.visible:
-            status_bar.set_message("Resource type selector shown", "info")
-        else:
-            status_bar.set_message("Resource type selector hidden", "info")
+        status_bar.set_message("Sidebar removed - use 1-4 keys to switch resource types", "info")
 
     def action_refresh(self) -> None:
         """Refresh current view"""
@@ -991,13 +964,6 @@ class BluetermApp(App):
 
         # Save theme preference
         self.preferences.update_theme(new_theme)
-
-        # Update theme display in region selector
-        try:
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            region_selector.set_theme(new_theme)
-        except:
-            pass
 
         # Show notification of theme change
         status_bar = self.query_one("#status_bar", StatusBar)
@@ -1118,16 +1084,13 @@ class BluetermApp(App):
         """Go back to Code Engine project list or unfocus sections (Esc key)"""
         # If a section is focused, unfocus it
         if self.focused_section:
-            region_selector = self.query_one("#region_selector", RegionSelector)
-            if self.focused_section == "region":
-                region_selector.set_focused(False)
-            elif self.focused_section == "resource_group":
-                region_selector.set_resource_group_focused(False)
+            top_nav = self.query_one("#top_navigation", TopNavigation)
+            top_nav.clear_focus()
             self.focused_section = None
             status_bar = self.query_one("#status_bar", StatusBar)
             status_bar.set_message("Navigation unfocused", "info")
             return
-        
+
         # Otherwise, go back from Code Engine project resources view to project list
         if self.current_resource_type != ResourceType.CODE_ENGINE or self.selected_project is None:
             return
