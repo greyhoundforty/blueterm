@@ -41,6 +41,7 @@ from .widgets.info_bar import InfoBar
 from .widgets.instance_table import InstanceTable, ResourceType as TableResourceType
 from .widgets.status_bar import StatusBar
 from .widgets.search_input import SearchInput
+from .widgets.action_bar import ActionBar
 from .widgets.detail_panel import DetailPanel
 from .screens.detail_screen import DetailScreen
 from .screens.confirm_screen import ConfirmScreen
@@ -110,38 +111,38 @@ class BluetermApp(App):
         Binding("q", "quit", "Quit", priority=True),
         Binding("question_mark", "help", "Help"),
         Binding("slash", "search", "Search"),
-        # Resource type switching (numbers)
-        Binding("1", "switch_resource_type('1')", "VPC", show=True),
-        Binding("2", "switch_resource_type('2')", "IKS", show=True),
-        Binding("3", "switch_resource_type('3')", "ROKS", show=True),
-        Binding("4", "switch_resource_type('4')", "Code Engine", show=True),
-        # Instance actions
-        Binding("b", "reboot_instance", "Reboot"),
-        Binding("s", "start_instance", "Start"),
-        Binding("S", "stop_instance", "Stop"),
         Binding("R", "refresh", "Refresh"),
         Binding("d", "show_details", "Details"),
+        # Resource type switching (numbers) — discoverable via help
+        Binding("1", "switch_resource_type('1')", "VPC", show=False),
+        Binding("2", "switch_resource_type('2')", "IKS", show=False),
+        Binding("3", "switch_resource_type('3')", "ROKS", show=False),
+        Binding("4", "switch_resource_type('4')", "Code Engine", show=False),
+        # Instance actions — discoverable via help
+        Binding("b", "reboot_instance", "Reboot", show=False),
+        Binding("s", "start_instance", "Start", show=False),
+        Binding("S", "stop_instance", "Stop", show=False),
+        Binding("D", "show_split_details", "Split", show=False),
         Binding("enter", "select_project", "Select", show=False),
         Binding("h", "region_previous", "Prev Region", show=False),
         Binding("l", "region_next", "Next Region", show=False),
         Binding("left", "region_previous", show=False),
         Binding("right", "region_next", show=False),
         # Number keys for quick region switching (0, 5-9 when regions focused)
-        # Note: 1-4 are used for resource type switching
         Binding("0", "region_number(0)", show=False),
         Binding("5", "region_number(5)", show=False),
         Binding("6", "region_number(6)", show=False),
         Binding("7", "region_number(7)", show=False),
         Binding("8", "region_number(8)", show=False),
         Binding("9", "region_number(9)", show=False),
-        Binding("t", "cycle_theme", "Theme"),
-        Binding("a", "toggle_auto_refresh", "Auto-refresh"),
+        Binding("t", "cycle_theme", "Theme", show=False),
+        Binding("a", "toggle_auto_refresh", "Auto-refresh", show=False),
         # Code Engine navigation
         Binding("escape", "back_to_projects", "Back", show=False),
         # Interactive navigation
-        Binding("r", "focus_region", "Focus Region", show=True),
-        Binding("g", "focus_resource_group", "Focus RG", show=True),
-        Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar", show=True),
+        Binding("r", "focus_region", "Focus Region", show=False),
+        Binding("g", "focus_resource_group", "Focus RG", show=False),
+        Binding("ctrl+b", "toggle_sidebar", "Toggle Sidebar", show=False),
     ]
 
     # Available color themes
@@ -241,15 +242,38 @@ class BluetermApp(App):
         self.focused_section: Optional[str] = None  # None, "region", "resource_group"
 
     def compose(self) -> ComposeResult:
-        """Compose the main application layout with top 3-column navigation"""
+        """
+        Compose the main application layout.
+
+        Structure:
+            Header
+            InfoBar               ← profile / time / counts
+            TopNavigation         ← 3-column: resource type | regions | resource groups
+            main_container (V):
+                split_container (H):
+                    InstanceTable (1fr)   ← always visible
+                    DetailPanel   (45%)   ← hidden; appears on D key
+                ActionBar         ← hidden; appears when a row is selected
+                SearchInput       ← hidden; appears on /
+            StatusBar
+            Footer
+        """
         yield Header()
         yield InfoBar(id="info_bar")
-        # Top navigation bar with 3 columns: Resource Type | Regions | Resource Groups
         yield TopNavigation(id="top_navigation")
-        # Main content area
+
         with Vertical(id="main_container"):
-            yield InstanceTable(id="instance_table")
+            # Horizontal split: table on the left, optional detail panel on the right
+            with Horizontal(id="split_container"):
+                yield InstanceTable(id="instance_table")
+                yield DetailPanel(id="detail_panel")
+
+            # Contextual action bar — only visible when a row is selected
+            yield ActionBar(id="action_bar")
+
+            # Search input — docked to bottom of main_container
             yield SearchInput(id="search_input")
+
         yield StatusBar(id="status_bar")
         yield Footer()
 
@@ -460,6 +484,11 @@ class BluetermApp(App):
                 self.project_counts = project_counts
 
             instance_table.update_instances(self.filtered_instances, project_counts)
+
+            # Update the action bar to reflect whichever row ends up selected
+            # after the table is populated (cursor defaults to row 0).
+            # Without this call the bar stays hidden until the user presses j/k.
+            self._refresh_action_bar()
 
             # Update statistics
             running = sum(1 for i in self.instances if i.status.value == "running")
@@ -1048,6 +1077,80 @@ class BluetermApp(App):
         # Debug feedback
         status_bar = self.query_one("#status_bar", StatusBar)
         status_bar.set_message(f"Showing details for {selected.name}", "info")
+
+    def _refresh_action_bar(self) -> None:
+        """
+        Update the ActionBar to reflect the currently selected row.
+
+        Called in two situations:
+          1. After load_instances() populates the table (initial load / region change)
+          2. Whenever the DataTable cursor moves (on_data_table_row_highlighted)
+
+        Keeping the logic here avoids duplication and makes it easy to call
+        from both code paths.
+        """
+        action_bar = self.query_one("#action_bar", ActionBar)
+        instance_table = self.query_one("#instance_table", InstanceTable)
+
+        selected = instance_table.get_selected_instance()
+        if selected is None:
+            # Empty table or placeholder row — hide the bar
+            action_bar.clear_context()
+            return
+
+        # Map our internal ResourceType enum to the string keys ActionBar expects
+        rt_map = {
+            ResourceType.VPC:         "vpc",
+            ResourceType.IKS:         "iks",
+            ResourceType.ROKS:        "roks",
+            ResourceType.CODE_ENGINE: "code_engine",
+        }
+        rt_str = rt_map.get(self.current_resource_type, "vpc")
+
+        # For Code Engine: distinguish project list from resources inside a project
+        inside_project = (
+            self.current_resource_type == ResourceType.CODE_ENGINE
+            and self.selected_project is not None
+        )
+
+        action_bar.update_context(rt_str, selected, inside_project=inside_project)
+
+    def on_data_table_row_highlighted(self, event) -> None:
+        """
+        Fired every time the DataTable cursor moves to a new row (j/k/arrows).
+
+        Delegates to _refresh_action_bar() so the ActionBar always reflects
+        whichever row is currently under the cursor.
+        """
+        self._refresh_action_bar()
+
+    def action_show_split_details(self) -> None:
+        """
+        Toggle the inline split-pane detail view for the selected instance (D key).
+
+        If the panel is already showing the same instance it toggles closed.
+        If it's showing a different instance (or was closed), it updates and opens.
+        """
+        instance_table = self.query_one("#instance_table", InstanceTable)
+        selected = instance_table.get_selected_instance()
+
+        if not selected:
+            return
+
+        detail_panel = self.query_one("#detail_panel", DetailPanel)
+
+        if detail_panel.has_class("visible"):
+            # Toggle: close if same instance, update if different
+            if detail_panel.current_instance and detail_panel.current_instance.id == selected.id:
+                detail_panel.hide_panel()
+                instance_table.focus()
+                return
+
+        # Show (or update) the split panel
+        detail_panel.show_instance(selected)
+
+        status_bar = self.query_one("#status_bar", StatusBar)
+        status_bar.set_message(f"Split view: {selected.name}  (Esc or x to close)", "info")
 
     def action_select_project(self) -> None:
         """Select Code Engine project and load its resources (Enter key)"""

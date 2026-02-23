@@ -1,4 +1,5 @@
 """Widget exports"""
+from .action_bar import ActionBar
 from .region_selector import RegionSelector
 from .resource_type_selector import ResourceTypeSelector, ResourceType
 from .resource_group_selector import ResourceGroupSelector
@@ -10,6 +11,7 @@ from .search_input import SearchInput
 from .detail_panel import DetailPanel
 
 __all__ = [
+    "ActionBar",
     "RegionSelector",
     "ResourceTypeSelector",
     "ResourceType",
