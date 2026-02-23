@@ -92,19 +92,33 @@
     overflow-y: auto;
 }
 
-/* Main container layout */
+/* ---- Main container (outer vertical shell) ---- */
 #main_container {
     layout: vertical;
     height: 1fr;
     width: 100%;
 }
 
+/* ---- Horizontal split: table + detail panel ---- */
+#split_container {
+    layout: horizontal;
+    height: 1fr;
+    width: 100%;
+}
 
-/* Instance table */
+/* ---- Instance table (fills available horizontal space) ---- */
 #instance_table {
+    width: 1fr;       /* shrinks when DetailPanel is visible  */
     height: 1fr;
     border: solid $primary;
     margin: 1 0;
+}
+
+/* ---- Contextual action bar ---- */
+/* ActionBar handles its own display:none / display:block via CSS classes */
+#action_bar {
+    height: 1;
+    width: 100%;
 }
 
 #instance_table > .datatable--header {
